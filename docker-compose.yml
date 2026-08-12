@@ -16,17 +16,21 @@ services:
       timeout: 5s
       retries: 5
 
-  # backend:
-  #   Added in Phase 1 once backend/Dockerfile exists (FastAPI + SQLAlchemy + Alembic).
-  #   build: ./backend
-  #   env_file: .env
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     - ./backend:/app
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      # Overrides the .env file's DATABASE_URL (which points at `localhost`
+      # for host-machine dev) — inside the compose network the backend must
+      # reach Postgres via its service name instead.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-language_app}:${POSTGRES_PASSWORD:-language_app}@postgres:5432/${POSTGRES_DB:-language_app}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
 
   # frontend:
   #   Added in Phase 3 once frontend/Dockerfile exists (Next.js + Tailwind).
