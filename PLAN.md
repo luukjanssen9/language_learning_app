@@ -148,13 +148,12 @@ CORS middleware Phase 3 also required (`app/config.py`'s new
 `frontend_origin` setting, `allow_credentials=False` since there's no
 auth/cookies to protect).
 
-**2026-08-13 — `next dev`/Next.js 16 auto-generates `AGENTS.md` (and a
-one-line `CLAUDE.md` pointing at it) inside `frontend/`, regenerated on
-every dev-server start** — framework-specific guidance for AI coding
-assistants, not project documentation. Both gitignored the same way the
-root `CLAUDE.md` already was (bare filename entries under "Editors / OS" in
-`.gitignore`, no explanatory comment) rather than deleted, since deleting
-would just have them silently reappear on the next `npm run dev`.
+**2026-08-13 — `next dev`/Next.js 16 auto-generates `AGENTS.md` inside
+`frontend/`, regenerated on every dev-server start** — framework-specific
+guidance for AI coding assistants, not project documentation. Gitignored
+(a bare filename entry under "Editors / OS" in `.gitignore`, no
+explanatory comment) rather than deleted, since deleting would just have
+it silently reappear on the next `npm run dev`.
 
 **2026-08-13 — Frontend toolchain has three version-compatibility pins,
 each hit and fixed live, not preemptively guessed:** `vite` pinned to `^7`

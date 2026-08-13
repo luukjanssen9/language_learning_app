@@ -1,4 +1,4 @@
-// No auth in v1 -- "single-user, assumed" per CLAUDE.md, meaning the person
+// No auth in v1 -- "single-user, assumed" per this project's conventions, meaning the person
 // should never see a signup/setup screen. This silently ensures the one
 // User row, the two Language rows, and the one Course row everything else
 // foreign-keys against all exist, creating only whichever are missing.
