@@ -33,10 +33,6 @@ export default function DashboardPage() {
       </section>
 
       <NewDeckForm />
-
-      {/* Phase 4's lesson path slots in here as a sibling section, per the
-          2026-08-13 Unified Dashboard decision -- deliberately no stub
-          built now. */}
     </main>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { CardForm } from "@/components/cards/CardForm";
 import { CardListItem } from "@/components/cards/CardListItem";
+import { DeckForm } from "@/components/decks/DeckForm";
 import { useCards, useCreateCard, useDeleteCard, useUpdateCard } from "@/hooks/useCards";
-import { useDecks } from "@/hooks/useDecks";
+import { useDecks, useDeleteDeck, useUpdateDeck } from "@/hooks/useDecks";
 
 export default function DeckDetailPage() {
   // useParams(), not the `params` prop: `params` is a Promise in server
@@ -14,12 +15,16 @@ export default function DeckDetailPage() {
   // fetching to justify becoming one -- useParams() is the client-safe way
   // to read the dynamic segment.
   const { deckId } = useParams<{ deckId: string }>();
+  const router = useRouter();
   const [isAdding, setIsAdding] = useState(false);
+  const [isEditingDeck, setIsEditingDeck] = useState(false);
 
   // Reuses the same `decks` query the dashboard already populated, rather
   // than a separate get-by-id fetch -- one cache, one source of truth.
   const { data: decks = [] } = useDecks();
   const deck = decks.find((d) => d.id === deckId);
+  const updateDeck = useUpdateDeck();
+  const deleteDeck = useDeleteDeck();
 
   const { data: cards = [], isPending } = useCards(deckId);
   const createCard = useCreateCard(deckId);
@@ -32,8 +37,48 @@ export default function DeckDetailPage() {
         <Link href="/" className="text-sm text-ink-soft">
           ← Back
         </Link>
-        <h1 className="mt-2 font-display text-3xl text-ink">{deck?.name ?? "Deck"}</h1>
-        {deck?.description && <p className="mt-1 text-ink-soft">{deck.description}</p>}
+        {isEditingDeck && deck ? (
+          <div className="mt-2">
+            <DeckForm
+              initialDeck={deck}
+              isSubmitting={updateDeck.isPending}
+              onCancel={() => setIsEditingDeck(false)}
+              onSubmit={(values) => {
+                updateDeck.mutate(
+                  { id: deckId, payload: values },
+                  { onSuccess: () => setIsEditingDeck(false) },
+                );
+              }}
+            />
+          </div>
+        ) : (
+          <div className="mt-2 flex items-start justify-between gap-4">
+            <div>
+              <h1 className="font-display text-3xl text-ink">{deck?.name ?? "Deck"}</h1>
+              {deck?.description && <p className="mt-1 text-ink-soft">{deck.description}</p>}
+            </div>
+            <div className="flex shrink-0 gap-3 pt-1 text-sm">
+              <button
+                type="button"
+                onClick={() => setIsEditingDeck(true)}
+                className="text-ink-soft"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm("Delete this deck and all its cards?")) {
+                    deleteDeck.mutate(deckId, { onSuccess: () => router.push("/") });
+                  }
+                }}
+                className="text-rating-again"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Link

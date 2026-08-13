@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
@@ -6,12 +7,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.crud_utils import get_or_404
 from app.database import get_db
+from app.models.course import Course
+from app.models.enums import ExerciseType
+from app.models.language import Language
 from app.models.lesson_exercise import LessonExercise
+from app.models.skill import Skill
+from app.models.user_exercise_attempt import UserExerciseAttempt
+from app.models.user_progress import UserProgress
 from app.schemas.lesson_exercise import (
     LessonExerciseCreate,
     LessonExerciseRead,
     LessonExerciseUpdate,
 )
+from app.schemas.user_exercise_attempt import (
+    LessonExerciseAttemptResponse,
+    UserExerciseAttemptRead,
+    UserExerciseAttemptSubmit,
+)
+from app.schemas.user_progress import UserProgressRead
+from app.services.exercise_grading import get_correct_answer, grade_attempt
 
 router = APIRouter(prefix="/lesson-exercises", tags=["lesson-exercises"])
 
@@ -28,8 +42,13 @@ async def create_lesson_exercise(
 
 
 @router.get("", response_model=list[LessonExerciseRead])
-async def list_lesson_exercises(db: AsyncSession = Depends(get_db)) -> list[LessonExercise]:
-    result = await db.execute(select(LessonExercise).order_by(LessonExercise.order_index))
+async def list_lesson_exercises(
+    skill_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+) -> list[LessonExercise]:
+    query = select(LessonExercise).order_by(LessonExercise.order_index)
+    if skill_id is not None:
+        query = query.where(LessonExercise.skill_id == skill_id)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
@@ -59,3 +78,77 @@ async def delete_lesson_exercise(
     exercise = await get_or_404(db, LessonExercise, exercise_id)
     await db.delete(exercise)
     await db.commit()
+
+
+@router.post("/{exercise_id}/attempt", response_model=LessonExerciseAttemptResponse)
+async def submit_lesson_exercise_attempt(
+    exercise_id: uuid.UUID,
+    payload: UserExerciseAttemptSubmit,
+    db: AsyncSession = Depends(get_db),
+) -> LessonExerciseAttemptResponse:
+    """Grades the answer, logs the attempt, and upserts the skill's
+    `UserProgress` -- same overall shape as `POST /cards/{id}/review`
+    (look up the entity, compute an outcome via a service function,
+    persist, return entity + effect), except a `LessonExercise` belongs
+    to a shared `Skill`/course rather than one user's row, so `user_id`
+    comes from the request body instead of being implicit.
+    """
+    exercise = await get_or_404(db, LessonExercise, exercise_id)
+
+    # grammar_config is only needed to grade CONJUGATION exercises -- skip
+    # the extra lookups for the (much more common) other exercise types.
+    grammar_config: dict | None = None
+    if exercise.exercise_type == ExerciseType.CONJUGATION:
+        skill = await get_or_404(db, Skill, exercise.skill_id)
+        course = await get_or_404(db, Course, skill.course_id)
+        target_language = await get_or_404(db, Language, course.target_language_id)
+        grammar_config = target_language.grammar_config
+
+    is_correct = grade_attempt(exercise, payload.submitted_answer, grammar_config)
+    correct_answer = get_correct_answer(exercise, grammar_config)
+
+    attempt = UserExerciseAttempt(
+        user_id=payload.user_id,
+        exercise_id=exercise.id,
+        submitted_answer=payload.submitted_answer,
+        is_correct=is_correct,
+    )
+    db.add(attempt)
+
+    progress_result = await db.execute(
+        select(UserProgress).where(
+            UserProgress.user_id == payload.user_id,
+            UserProgress.skill_id == exercise.skill_id,
+        )
+    )
+    progress = progress_result.scalar_one_or_none()
+    if progress is None:
+        # times_attempted/times_correct's `default=0` is applied at
+        # INSERT time, not on construction (same as Card.reps/lapses in
+        # fsrs_engine.py) -- set explicitly since we increment below
+        # before this row is ever flushed.
+        progress = UserProgress(
+            user_id=payload.user_id,
+            skill_id=exercise.skill_id,
+            times_attempted=0,
+            times_correct=0,
+        )
+        db.add(progress)
+
+    progress.times_attempted += 1
+    if is_correct:
+        progress.times_correct += 1
+    progress.last_practiced_at = datetime.now(UTC)
+    # Plain accuracy ratio, kept deliberately simple per PLAN.md's
+    # minimal-gamification decision -- not a smoothed/weighted score.
+    progress.mastery_level = progress.times_correct / progress.times_attempted
+
+    await db.commit()
+    await db.refresh(attempt)
+    await db.refresh(progress)
+
+    return LessonExerciseAttemptResponse(
+        attempt=UserExerciseAttemptRead.model_validate(attempt),
+        progress=UserProgressRead.model_validate(progress),
+        correct_answer=correct_answer,
+    )

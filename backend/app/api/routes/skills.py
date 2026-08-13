@@ -22,8 +22,13 @@ async def create_skill(payload: SkillCreate, db: AsyncSession = Depends(get_db))
 
 
 @router.get("", response_model=list[SkillRead])
-async def list_skills(db: AsyncSession = Depends(get_db)) -> list[Skill]:
-    result = await db.execute(select(Skill).order_by(Skill.order_index))
+async def list_skills(
+    course_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+) -> list[Skill]:
+    query = select(Skill).order_by(Skill.order_index)
+    if course_id is not None:
+        query = query.where(Skill.course_id == course_id)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 

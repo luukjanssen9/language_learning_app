@@ -11,6 +11,7 @@ class LessonExerciseBase(BaseModel):
     exercise_type: ExerciseType
     prompt: dict
     order_index: int = 0
+    specialty_module: str | None = None
 
 
 class LessonExerciseCreate(LessonExerciseBase):
@@ -21,6 +22,7 @@ class LessonExerciseUpdate(BaseModel):
     exercise_type: ExerciseType | None = None
     prompt: dict | None = None
     order_index: int | None = None
+    specialty_module: str | None = None
 
 
 class LessonExerciseRead(LessonExerciseBase):

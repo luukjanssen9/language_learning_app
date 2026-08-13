@@ -13,8 +13,13 @@ router = APIRouter(prefix="/user-progress", tags=["user-progress"])
 
 
 @router.get("", response_model=list[UserProgressRead])
-async def list_user_progress(db: AsyncSession = Depends(get_db)) -> list[UserProgress]:
-    result = await db.execute(select(UserProgress).order_by(UserProgress.last_practiced_at))
+async def list_user_progress(
+    user_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+) -> list[UserProgress]:
+    query = select(UserProgress).order_by(UserProgress.last_practiced_at)
+    if user_id is not None:
+        query = query.where(UserProgress.user_id == user_id)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 

@@ -28,6 +28,10 @@ frontend/dist/
 # --- Postgres data volume (if bind-mounted locally) ---
 pgdata/
 
+# --- Claude Code local state (not project content) ---
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
 # --- Editors / OS ---
 .vscode/
 .idea/

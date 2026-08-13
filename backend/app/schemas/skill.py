@@ -10,6 +10,8 @@ class SkillBase(BaseModel):
     slug: str
     order_index: int = 0
     prerequisite_skill_id: uuid.UUID | None = None
+    specialty_module: str | None = None
+    intro_content: dict | None = None
 
 
 class SkillCreate(SkillBase):
@@ -21,6 +23,8 @@ class SkillUpdate(BaseModel):
     slug: str | None = None
     order_index: int | None = None
     prerequisite_skill_id: uuid.UUID | None = None
+    specialty_module: str | None = None
+    intro_content: dict | None = None
 
 
 class SkillRead(SkillBase):

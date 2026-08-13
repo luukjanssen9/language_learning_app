@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, Integer
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,6 +24,10 @@ class LessonExercise(UUIDPkMixin, CreatedAtMixin, Base):
     )
     prompt: Mapped[dict] = mapped_column(JSONB, nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Same specialty-module tag as Skill.specialty_module, set redundantly
+    # here too so exercise-level queries (e.g. "every CONJUGATION attempt
+    # across any skill" for Phase 5 analytics) don't need a join.
+    specialty_module: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     def __repr__(self) -> str:
         return f"<LessonExercise {self.id} type={self.exercise_type}>"

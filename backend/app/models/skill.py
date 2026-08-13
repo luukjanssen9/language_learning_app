@@ -1,6 +1,7 @@
 import uuid
 
 from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,6 +23,14 @@ class Skill(UUIDPkMixin, CreatedAtMixin, Base):
     prerequisite_skill_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True, index=True
     )
+    # Tags a skill as belonging to a named per-language specialty module
+    # (e.g. "spanish-verb-conjugation"), not a code branch -- NULL for
+    # ordinary vocab skills, which is most of them.
+    specialty_module: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Ungraded teaching content shown once before this skill's practice
+    # queue starts: {"explanation": str, "examples": [{"target_text": str,
+    # "base_text": str}, ...]}. NULL for skills with no intro (the norm).
+    intro_content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     def __repr__(self) -> str:
         return f"<Skill {self.slug!r}>"

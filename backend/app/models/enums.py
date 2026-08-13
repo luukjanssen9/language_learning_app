@@ -48,3 +48,4 @@ class ExerciseType(enum.StrEnum):
     TRANSLATION = "translation"
     FILL_IN_BLANK = "fill_in_blank"
     FREE_TEXT = "free_text"
+    CONJUGATION = "conjugation"

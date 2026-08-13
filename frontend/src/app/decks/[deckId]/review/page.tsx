@@ -80,11 +80,29 @@ export default function ReviewSessionPage() {
   }, [flipped, handleFlip, handleRate]);
 
   if (isPending) return <CenteredMessage>Loading due cards…</CenteredMessage>;
-  if (total === 0) return <CenteredMessage>Nothing due in this deck right now.</CenteredMessage>;
+  if (total === 0) {
+    return (
+      <CenteredMessage>
+        <div className="flex flex-col items-center gap-4">
+          <p>Nothing due in this deck right now.</p>
+          <Link href={`/decks/${deckId}`} className="text-sm text-ink-soft underline">
+            ← Back to deck
+          </Link>
+        </div>
+      </CenteredMessage>
+    );
+  }
   if (done) {
     return (
       <CenteredMessage>
-        Session complete — {total} card{total === 1 ? "" : "s"} reviewed.
+        <div className="flex flex-col items-center gap-4">
+          <p>
+            Session complete — {total} card{total === 1 ? "" : "s"} reviewed.
+          </p>
+          <Link href={`/decks/${deckId}`} className="text-sm text-ink-soft underline">
+            ← Back to deck
+          </Link>
+        </div>
       </CenteredMessage>
     );
   }

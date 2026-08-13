@@ -11,4 +11,13 @@ export const queryKeys = {
   // reschedule them server-side. Keeping them siblings makes that
   // impossible by construction.
   dueCards: (deckId: string) => ["decks", deckId, "due-cards"] as const,
+
+  skills: (courseId: string) => ["skills", courseId] as const,
+  // A lesson session fetches its exercise queue once (staleTime: Infinity)
+  // and freezes it locally, same as dueCards above. Kept under its own
+  // top-level "skills" root rather than nested under `progress` below, so
+  // invalidating progress after an attempt can never prefix-match and
+  // silently refetch/reshuffle a session's in-progress exercise queue.
+  exercises: (skillId: string) => ["skills", skillId, "exercises"] as const,
+  progress: (userId: string) => ["user-progress", userId] as const,
 };

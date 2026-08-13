@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
+import { Nav } from "@/components/Nav";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { BootstrapProvider } from "@/providers/BootstrapProvider";
 
@@ -28,7 +29,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${fraunces.variable} ${hankenGrotesk.variable}`}>
       <body className="bg-bg text-ink font-sans antialiased">
         <QueryProvider>
-          <BootstrapProvider>{children}</BootstrapProvider>
+          <BootstrapProvider>
+            <Nav />
+            {children}
+          </BootstrapProvider>
         </QueryProvider>
       </body>
     </html>

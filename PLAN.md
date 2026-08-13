@@ -19,15 +19,23 @@ Living project plan and status log. Read at the start of every session; update C
   card, rate recall, keyboard shortcuts). Visual style ("Quiet Focus") and
   layout ("Unified Dashboard") proposed and approved before build. Code
   complete and verified end-to-end in a real browser against the live API.
-- [ ] **Phase 4 — Structured lessons**: lesson/skill data model, seed starter
-  English→Spanish course content, exercise UI (multiple choice, translation,
-  fill-in-blank). Minimal gamification only (progress/mastery tracking, no
-  streak/XP UI in v1). Also planned: a dedicated conjugation-practice mode
-  (drilling verb forms across tenses/moods) plus Spanish subjunctive practice
-  specifically — both conjugation *and* when to use it — as a deliberate
-  differentiator from Duolingo, which doesn't teach subjunctive well. Real
-  design questions to resolve before building this — see the Known Issues /
-  Follow-ups note below, added 2026-08-13.
+- [x] **Phase 4 — Structured lessons**: lesson/skill data model (mostly
+  already in place from Phase 1 — `Skill`, `LessonExercise`,
+  `UserProgress`), seed starter English→Spanish course content, exercise
+  UI (multiple choice, translation, fill-in-blank), a submit/grade
+  endpoint. Minimal gamification only (progress/mastery tracking, no
+  streak/XP UI in v1). Also built, design resolved 2026-08-13 (see
+  Decisions Log): a new `ExerciseType.CONJUGATION` drilling all verb
+  forms across tenses/moods, plus a distinct subjunctive-usage
+  ("spot the trigger") practice section covering three trigger
+  categories — doubt, desire/wish, emotion — as a deliberate
+  differentiator from Duolingo, which doesn't teach subjunctive well.
+  Course navigation reworked after use (separate decks/course pages,
+  general course switcher, data-driven practice categories, no progress
+  locking, Verb Conjugation rebuilt as a tense-picker → conjugate-all-
+  6-persons drill covering 15 irregular verbs + present perfect). Code
+  complete and verified end-to-end in a real browser against the live
+  API.
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
   Gemini default), example generation, free-text grading, auto-card-generation,
   mnemonics, adaptive weak-point targeting.
@@ -261,10 +269,265 @@ function-scoped (fresh transaction/SAVEPOINT per test), so test isolation is
 unaffected. Standard fix for this exact SQLAlchemy-async-engine + pytest-
 asyncio combination.
 
+**2026-08-13 — Review session's "Session complete" and "nothing due" states
+gained a link back to the deck.** Neither had any navigation at all when
+Phase 3 first shipped — a real dead end, reachable only via the browser's
+own back button. Found by using the live app, not by testing. Fixed by
+linking both terminal states to `/decks/[deckId]` rather than the
+dashboard, so the destination is always "the deck you were just reviewing,"
+not a level higher.
+
+**2026-08-13 — Deck editing (rename, description, delete) added; wasn't
+part of Phase 3's original scope, which only covered card management and
+review.** The backend's `PATCH`/`DELETE /decks/{id}` already existed
+(Phase 1) and simply weren't wired to anything on the frontend. Added
+`DeckForm` (mirrors `CardForm`'s pattern) and exposed it two ways: inline
+on each dashboard row via an "Edit" button next to "Study" (no navigation
+required, matching the request to make it a one-click action instead of
+click-through-to-detail-page), and on the deck detail page itself. Delete
+asks for confirmation and redirects to the dashboard on success.
+
+**2026-08-13 — Phase 4 navigation sketched before building anything, on
+request, so routing decisions aren't redone mid-phase.** Dashboard gains a
+second sibling section, "Your course" — the slot the "Unified Dashboard"
+layout decision above specifically reserved for this — showing an ordered
+`Skill` path, mastery bars driven by `UserProgress.mastery_level`, nodes
+locked/unlocked via `prerequisite_skill_id`. A new session route,
+`/skills/[skillId]/lesson`, mirrors `/decks/[deckId]/review`'s shape: frozen
+exercise queue, progress indicator, interleaved exercise types (per this
+doc's own convention against blocking one type at a time), and a "Session
+complete" screen with its back-to-source link built in from the start —
+unlike the review session, which shipped without one and needed a follow-up
+fix. No separate skill-detail page: tapping a node starts the lesson
+directly, since exercise content isn't user-edited in v1 the way cards are.
+One fork deliberately left open, not decided here: whether conjugation/
+subjunctive practice hangs off a `Skill` (fits the path above) or becomes
+its own third top-level dashboard section — left for when that feature is
+actually designed, per the standing clarifying-questions rule.
+
+**2026-08-13 — Conjugation/subjunctive feature design resolved**, closing
+out the open questions the 2026-08-13 "Conjugation practice + Spanish
+subjunctive" note (below) deliberately left for a clarifying-questions
+conversation. Resolves the fork above too: it hangs off `Skill`, not a
+third dashboard section.
+- **Schema**: no new tables. A nullable specialty-module slug on `Skill`
+  (and `LessonExercise`) tags content as belonging to a named module (e.g.
+  `spanish-subjunctive`); `Language.grammar_config` keeps holding the raw
+  grammar data — regular-verb endings and an irregular-verb override table
+  — that generation logic reads.
+- **Conjugated forms are generated, not hand-seeded**: rule-based, from
+  the config above plus a base verb list, so adding a verb doesn't mean
+  hand-authoring every tense/mood form for it.
+- **New `ExerciseType.CONJUGATION`**: typed-answer production, covering
+  *all* conjugations (present, past, future, subjunctive, etc.) — not
+  subjunctive-only. Kept distinct from `FILL_IN_BLANK` so later analytics
+  (Phase 5 weak-point targeting) can tell "conjugate this verb" apart from
+  a generic fill-in-blank.
+- **Subjunctive *usage* practice ("spot the trigger") is a distinct
+  practice section, not conjugation with different content** — corrects
+  this note's own earlier framing, which treated it as just curated
+  content on an existing type. Mechanically it reuses `MULTIPLE_CHOICE`
+  (a sentence with a blank; answer choices are the same verb across
+  different moods/tenses, e.g. "Espero que tú ___" → *vienes / vengas /
+  vendrás*), tagged via the same specialty-module slug. Each trigger-
+  category `Skill` leads with a short, ungraded teaching screen
+  (explanation + example sentences, e.g. "doubt triggers the
+  subjunctive") shown once before that skill's practice queue — not a new
+  exercise type, just content on the `Skill` itself.
+- **v1 scope: three trigger-category skills** — doubt, desire/wish,
+  emotion — the most common, foundational triggers, enough to prove the
+  pattern repeats across multiple skills rather than reading as a single
+  special case. Impersonal expressions and denial are deliberately
+  deferred: adding either later is just another `Skill` row, no schema
+  change.
+- **Lesson-only for now**: conjugated forms don't automatically become
+  FSRS `Card` rows this phase. Promoting them to spaced-repetition items
+  is a clean later addition, not a rewrite, if wanted.
+
+**2026-08-13 — Phase 4 Stage A (generic core + conjugation) built and
+verified end-to-end; Stage B (subjunctive triggers) deliberately not
+started yet — stopping here for a review checkpoint per the approved
+plan.** Migration adds `skills.specialty_module`, `skills.intro_content`,
+`lesson_exercises.specialty_module`; `ExerciseType.CONJUGATION` needed no
+migration (the column has no CHECK constraint). New
+`app/services/conjugation.py` (rule-based generation from
+`Language.grammar_config`, irregular-verb overrides falling back to the
+regular rule per-tense) and `app/services/exercise_grading.py`
+(per-exercise-type grading), wired into a new `POST
+/lesson-exercises/{id}/attempt` endpoint that upserts `UserProgress`
+(mastery = plain accuracy ratio). Hit the same class of bug
+`test_fsrs_engine.py` already flagged for `Card.reps`/`lapses`: a new
+`UserProgress`'s `times_attempted`/`times_correct` `default=0` only
+applies at INSERT time, not on construction, so incrementing before
+flush needs them set explicitly. New idempotent `app/seed.py`
+(`python -m app.seed`) seeds real, hand-verified Spanish conjugation
+data (regular endings for `-ar/-er/-ir` × present/preterite/imperfect/
+future + present subjunctive; 8 irregular verbs' present indicative) plus
+two vocab skills and the "Verb Conjugation" skill (20 exercises). 9 new
+backend tests (51 total), all passing; ruff/tsc/eslint clean. Frontend:
+`skillPath.ts` (pure lock/unlock logic, mirrors `deckStats.ts`'s
+proxy-metric pattern), dashboard "Your course" section, and
+`/skills/[skillId]/lesson` mirroring the review session's shape —
+including a back-to-course link on both terminal states from the start,
+learning from the review session's own gap found and fixed earlier this
+session. Verified live: full vocab-skill session (multiple-choice,
+translation, fill-in-blank, including a deliberate wrong answer and a
+case-insensitive correct one), a real seeded `CONJUGATION` exercise
+graded correctly through the actual API, and the dashboard's mastery bar
++ lock/unlock state updating correctly after leaving a session.
+
+**2026-08-13 — Phase 4 Stage B (subjunctive-trigger skills) built and
+verified end-to-end; Phase 4 now fully complete.** All four review
+questions asked at the Stage A checkpoint were answered "keep as built"
+(strict accent-sensitive grading, wrong answers stay hidden rather than
+revealing the correct one, attempt-only unlock gate, click-to-submit
+multiple choice) — no code changes from that checkpoint, just confirmation
+to proceed. Extended `app/seed.py` with three trigger-category skills
+(Doubt, Desire/Wish, Emotion), chained linearly after Verb Conjugation;
+each has `intro_content` (explanation + 2 example sentences) and 3
+`MULTIPLE_CHOICE` exercises whose option strings are hand-authored, not
+computed via `conjugate()` — multiple-choice grading only compares a
+selected index, so these don't depend on `grammar_config`'s coverage the
+way `CONJUGATION` exercises do. **Found and fixed a real gap while
+verifying live, not by code review**: `SkillRead`/`LessonExerciseRead`
+(`app/schemas/skill.py`, `app/schemas/lesson_exercise.py`) were never
+updated when `specialty_module`/`intro_content` were added to the ORM
+models in Stage A — Pydantic silently drops undeclared fields, so the API
+was serving every skill with `intro_content` missing entirely. Invisible
+in Stage A because none of those skills had intro content to lose;
+surfaced the moment a trigger skill's intro screen silently failed to
+render. Fixed by adding both fields to the schemas (full CRUD symmetry,
+matching how the rest of `Skill`/`LessonExercise` is exposed, not a
+read-only carve-out). 51 backend tests still green after the fix; no new
+tests added specifically for the schema fields since the existing
+attempt/filter tests already round-trip full `SkillRead`/
+`LessonExerciseRead` objects through the API. Verified live end-to-end:
+intro screen renders once before practice on "Doubt," multiple-choice
+grading correct, and the dashboard shows independent mastery per
+trigger-category skill (Doubt 3/3 correct, Desire/Wish unlocked and
+untouched, Emotion still locked) alongside Greetings/Verb Conjugation's
+own independent progress.
+
+**2026-08-13 — Phase 4 course navigation reworked, after using the
+built version.** Decks and course split onto separate pages (`/` and
+`/course`, new `Nav.tsx`) instead of one dashboard; a course switcher
+(`CourseProvider`/`CourseSwitcher`) built generally against the real
+`Course`/`Language` tables even though only one course exists yet;
+skills regrouped into practice categories (Vocabulary, Verb Conjugation,
+Subjunctive) read from a new `Language.grammar_config.practice_categories`
+array rather than hardcoded per-language names in component logic;
+progress locking removed entirely (`lib/skillPath.ts` deleted, `SkillNode`
+lost its `unlocked` prop). Verb Conjugation became a genuinely different
+flow: `/course/category/verb-conjugation` (tense picker, tenses derived
+from the exercises actually present) → `/course/category/verb-conjugation/
+[tenseKey]` (one random verb, all 6 persons on one screen — yo/tú/usted/
+nosotros/vosotros/ustedes display labels over the existing internal
+yo/tú/él/nosotros/vosotros/ellos keys, no data change). "Check all" fires
+the existing single-answer attempt endpoint 6 times via `Promise.all`
+rather than adding a batch endpoint.
+
+Backend content expansion to support it: `irregular_verbs` grew from 8
+verbs/present-indicative-only to 15 verbs (added venir, poner, salir,
+saber, dar, ver, haber) each covering every tense/mood it's actually
+irregular in, not just present; added `irregular_participles` +
+`conjugate()`'s `tense="present_perfect"` branch (haber + participle,
+composed via a recursive `conjugate()` call); `_seed_conjugation_skill`
+replaced its 20 hand-listed tuples with a generator over 17 verbs × 6
+tense/mood combos × 6 pronouns (612 exercises) — every combination
+verified to resolve via a standalone script before seeding. Also fixed a
+real idempotency bug the generator would have hit immediately: the seed
+script's "skip if this skill already has exercises" check meant a content
+change would never reach an already-seeded dev DB — replaced with
+delete-then-recreate per skill (also deleting any `UserExerciseAttempt`
+rows referencing the deleted exercises, to satisfy the FK — acceptable
+for dev seed content per the existing "dev DB accumulates test debris"
+note, not real user data).
+
+**Three real bugs found live, not by review**, all in the new
+`[tenseKey]` drill page — the first two caught during my own
+verification, the third reported by the user immediately afterward
+(every tense showing "No verbs for this tense yet" when reached the
+normal way, via the category picker page): (1) `option` was recomputed
+via a fresh `.find()` over a freshly-built array every render, cascading
+into an unmemoized `groups` value that a render-time state adjustment was
+comparing by reference — every render looked like a "real" change,
+producing an infinite re-render loop the instant the page loaded; fixed
+by memoizing the intermediate `options` list too, so `.find()` on a
+stable array reference returns a stable element reference. (2) A second,
+subtler instance of the same class of bug: `const { data: exercises = []
+}` creates a brand-new empty array every render while the query is still
+loading — harmless everywhere else this pattern's used in the app (just
+rendering an empty list), but fatal here since this page is the first
+place comparing exercises-derived values by reference; fixed with a
+module-level `EMPTY_EXERCISES` singleton instead of a fresh per-render
+default. (3) After fixing (1) and (2), the initial verb pick still never
+fired when `exercises` was *already cached* on mount (the normal path —
+the picker page fetches the same query first): the "did `groups` change"
+comparison's own baseline (`groupsAtLastPick`) was initialized from that
+same already-correct first render, so the comparison started true-equal
+and never detected a "change" to pick from. `tsc`/eslint/my own live
+click-through all missed it because I always tested by navigating
+directly to a `[tenseKey]` URL, which hits the empty-then-populated
+transition case (2) actually catches; clicking through from the picker
+page — the real user path — hits neither transition. Fixed by seeding
+the initial `group` from a lazy `useState` initializer (reads `groups` as
+of the very first render, correct in both the cached and not-yet-loaded
+cases) instead of relying solely on the change-detection comparison for
+the first pick. Worth remembering as a pattern beyond this one page: any
+state derived from query data via reference comparison needs a stable
+empty default *and* its own correct value on mount, not just on change —
+and testing such a page only by direct URL navigation isn't equivalent to
+testing the actual click-through path.
+
+**2026-08-14 — Grading made accent-insensitive; conjugation drill mistakes
+now reveal the correct answer and allow fixing just the wrong field,
+rather than forcing a new verb.** Both from real usage feedback, reversing
+the Stage A checkpoint's "keep grading strict" and "keep wrong answers
+hidden" defaults for this specific case — deliberately, not by oversight.
+Accent-insensitivity: typing Spanish accents on a non-Spanish keyboard is
+real, unavoidable friction, distinct from the general typo-tolerance this
+project still defers to Phase 5's LLM grading — `exercise_grading._normalize`
+now strips accents via Unicode NFKD decomposition (drop combining marks)
+before comparing, applied uniformly to translation/fill-in-blank/
+conjugation since it's the same function; underlying conjugation *data*
+is untouched (still stores real accents — only the comparison is
+forgiving). New `get_correct_answer()` factored out of `grade_attempt`
+(same logic, now reusable) and returned unconditionally on
+`POST /lesson-exercises/{id}/attempt` as `correct_answer` — null for
+MULTIPLE_CHOICE/FREE_TEXT, not persisted on `UserExerciseAttempt` (derived
+fresh each time so it can't go stale if grammar_config is later revised).
+`ConjugationDrill.tsx`: wrong fields now show "Correct: <answer>" and stay
+editable (correct fields lock); a "Recheck" button re-submits all 6
+(harmless for already-correct ones) until every field passes or the
+learner chooses "Try another verb." No retry cap — the reveal already
+limits how many blind guesses are useful. 13 new backend tests (68
+total): a new `test_exercise_grading.py` (pure unit tests, no DB, same
+convention as `test_conjugation_service.py`) plus accent/`correct_answer`
+coverage added to the existing integration tests. Verified live: a
+missing-accent answer ("decis" for "decís") graded correct, a genuine
+mistake revealed "Correct: dice" while staying editable, fixing it and
+clicking Recheck brought the verb to 6/6 and the button correctly
+disappeared once nothing was left to fix.
+
 ## Current Status
 
 **As of 2026-08-13:**
 
+- Done: **Phase 4's course navigation was reworked after using the built
+  version, and is complete and verified end-to-end** — decks/course split
+  onto separate pages, a general course switcher, skills regrouped into
+  data-driven practice categories, progress locking removed, and Verb
+  Conjugation rebuilt as a tense-picker → conjugate-all-6-persons drill
+  (now covering 15 irregular verbs across every tense they're actually
+  irregular in, plus present perfect). See the decision log entry just
+  above for the full breakdown, including two real bugs (both infinite-
+  render-loop variants of the same "unstable reference" mistake) found
+  live rather than by review.
+- Done: **Phase 4's original build (generic lesson core, conjugation
+  practice, three subjunctive-trigger skills) is complete and verified
+  end-to-end** — see the Stage A / Stage B decision log entries above,
+  including a real schema gap (`intro_content` missing from `SkillRead`)
+  found and fixed while verifying Stage B live.
 - Done: **Phase 3 frontend is complete and verified end-to-end, in a real
   browser against the live API** (not just type-checked/unit-tested).
   Next.js 16 (App Router, TypeScript, Turbopack) + Tailwind v4, scaffolded
@@ -289,6 +552,15 @@ asyncio combination.
   backend tests still pass, `tsc --noEmit`/`eslint`/`ruff` all clean.
   Required two small backend additions alongside: CORS middleware and a
   `deck_id` filter on `GET /api/cards` (see decision log for both).
+- Done: **Two Phase 3 gaps found and fixed by using the live app.** The
+  review session's terminal states ("Session complete," "nothing due") had
+  no way back to the deck — fixed with a link to `/decks/[deckId]`. Deck
+  editing (rename, description, delete) didn't exist at all — the backend
+  endpoints were already there from Phase 1, just never wired to the
+  frontend; added via a shared `DeckForm`, exposed inline on the dashboard
+  ("Edit" next to "Study," no navigation needed) and on the deck detail
+  page. Both re-verified live via browser automation; 12/12 frontend tests
+  and `tsc`/`eslint` still clean. See decision log for both.
 - Done: **Phase 2 backend is complete and verified end-to-end.** FSRS
   scheduling via the official `fsrs` package (`app/services/fsrs_engine.py`),
   `POST /api/cards/{id}/review` (runs one FSRS review, updates the card,
@@ -337,9 +609,10 @@ asyncio combination.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: proceed to Phase 4 (structured lessons) — remember to ask detailed
-  clarifying questions before designing the conjugation/subjunctive feature,
-  per the Known Issues note below and the standing instruction to do so.
+- Next: proceed to Phase 5 (core AI/NLP features) — LLM service layer
+  (provider-agnostic, Gemini default; see
+  `.claude/skills/llm-provider-notes/`), example generation, free-text
+  grading, auto-card-generation, mnemonics, adaptive weak-point targeting.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
@@ -403,30 +676,10 @@ asyncio combination.
   addition would need its own section on reading characters — "fundamentally
   different than a latin or germanic language" — which is exactly the same
   shape of problem (a real per-language specialty section, architected so it
-  doesn't require rewriting the rest of the app). **Before this gets
-  designed or built, ask the user detailed clarifying questions about what
-  they actually want** — they explicitly said they don't want a generic
-  Duolingo clone and want to be asked, not have a generic version assumed.
-  Known open questions so far, to bring into that conversation rather than
-  resolve unilaterally:
-  - How much of a language's mood/tense/specialty-section structure lives in
-    `Language.grammar_config` (already built for per-language grammar rules)
-    vs. needs a dedicated table/registry for "specialty modules" a language
-    can declare (e.g. Spanish declares a subjunctive-mastery module, a future
-    Mandarin config declares a character-reading module).
-  - How conjugated forms get produced: rule-based generation (regular-verb
-    endings in config + an irregular-verb override table) vs. fully
-    pre-stored per-verb conjugation data.
-  - Whether this needs a new `ExerciseType.CONJUGATION` (typed-answer
-    production, matching this project's stated preference for retrieval over
-    multiple-choice) vs. reusing `FILL_IN_BLANK`.
-  - Subjunctive *usage* practice (recognizing trigger phrases/clauses that
-    require it) reuses existing exercise types with curated content — the
-    differentiation from Duolingo there is content curation, not new
-    mechanics — but confirm this framing still fits whatever fuller vision
-    the user has once asked.
-  - Whether individual conjugated forms should also become spaced-repetition
-    items (Phase 2's FSRS engine), not just Duolingo-style lesson exercises.
+  doesn't require rewriting the rest of the app). **Design resolved
+  2026-08-13 after a clarifying-questions conversation — see that date's
+  Decisions Log entry** ("Conjugation/subjunctive feature design
+  resolved") for the schema, exercise-type, and v1-scope decisions.
 
 - **Native-language vocabulary builder (requested 2026-08-13, not yet
   scheduled)** — a separate, lower-priority idea: an Anki-like tool for
