@@ -1,10 +1,23 @@
 from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
 from app.api.routes import api_router
+from app.config import settings
 
 app = FastAPI(title="Language App API", version="0.1.0")
+
+# No auth/cookies in v1, so allow_credentials stays False -- the frontend
+# never sends credentialed requests, keeping this the simple case of CORS
+# (a literal origin allow-list, no wildcard-with-credentials footgun).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_origin],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Content-Type"],
+)
 
 app.include_router(api_router, prefix="/api")
 

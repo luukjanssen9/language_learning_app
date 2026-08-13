@@ -22,10 +22,14 @@ async def test_create_and_get_language(client: AsyncClient):
 
 
 async def test_list_languages_includes_created(client: AsyncClient):
-    await client.post("/api/languages", json={"code": "es", "name": "Spanish"})
+    # "es"/"Spanish" avoided for the same reason "en" is avoided above --
+    # collides with real Language rows created by manual/bootstrap testing
+    # against the dev DB.
+    create_resp = await client.post("/api/languages", json={"code": "es-t", "name": "Test Spanish"})
+    assert create_resp.status_code == 201
     list_resp = await client.get("/api/languages")
     assert list_resp.status_code == 200
-    assert "es" in [item["code"] for item in list_resp.json()]
+    assert "es-t" in [item["code"] for item in list_resp.json()]
 
 
 async def test_get_language_404(client: AsyncClient):

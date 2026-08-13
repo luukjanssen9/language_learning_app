@@ -32,16 +32,27 @@ services:
     volumes:
       - ./backend:/app
 
-  # frontend:
-  #   Added in Phase 3 once frontend/Dockerfile exists (Next.js + Tailwind).
-  #   build: ./frontend
-  #   env_file: .env
-  #   depends_on:
-  #     - backend
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     - ./frontend:/app
+  # For active development, prefer running the frontend natively
+  # (`cd frontend && npm run dev`) instead of via this service — Docker
+  # Desktop's bind-mount performance for node_modules/hot-reload is a
+  # known-slow path on Windows. This service exists for docker-compose
+  # parity/completeness, not as the primary dev workflow.
+  frontend:
+    build: ./frontend
+    environment:
+      # Must stay a browser-reachable URL, not the internal compose network
+      # hostname -- API calls happen client-side in the browser (see
+      # frontend/src/lib/api/client.ts), so the browser (outside the
+      # compose network) needs localhost:8000, same as the host-mapped
+      # backend port, even though this container is on the network.
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
 
 volumes:
   pgdata:

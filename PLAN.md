@@ -14,10 +14,11 @@ Living project plan and status log. Read at the start of every session; update C
   (official `fsrs` package), review endpoint + due-card queue logic, unit
   and integration tests for scheduling edge cases. Code complete and
   verified end-to-end against a live Postgres instance.
-- [ ] **Phase 3 — Frontend foundation**: Next.js + TypeScript + Tailwind
+- [x] **Phase 3 — Frontend foundation**: Next.js + TypeScript + Tailwind
   scaffold (mobile-first), deck/card management UI, review session UI (flip
-  card, rate recall, keyboard shortcuts). Visual style options proposed
-  before build.
+  card, rate recall, keyboard shortcuts). Visual style ("Quiet Focus") and
+  layout ("Unified Dashboard") proposed and approved before build. Code
+  complete and verified end-to-end in a real browser against the live API.
 - [ ] **Phase 4 — Structured lessons**: lesson/skill data model, seed starter
   English→Spanish course content, exercise UI (multiple choice, translation,
   fill-in-blank). Minimal gamification only (progress/mastery tracking, no
@@ -73,6 +74,102 @@ accepted — low ops overhead, resume-legible stack.
 **2026-08-11 — Visual style: propose options before building.** Before Phase 3
 UI work, present 2-3 direction options (palette/tone) for approval rather than
 picking unilaterally.
+
+**2026-08-13 — Visual style chosen: "Quiet Focus."** Calm/warm/editorial —
+Fraunces (display) + Hanken Grotesk (body/UI), a soft putty background with a
+single deep-sage accent, no bright gamified palette. Picked over two other
+proposed directions ("Bright Momentum" — energetic, Duolingo-adjacent
+colorful; "Quiet Precision" — dark-mode, technical) specifically because it's
+the one that actually matches the 2026-08-11 minimal-gamification decision —
+the other two either fought that choice (Bright Momentum) or read as
+portfolio-flex-first rather than daily-study-first (Quiet Precision).
+
+**2026-08-13 — Home-screen layout chosen: "Unified Dashboard."** Due-count
+and the deck list live on one screen together, decks get inline progress
+bars — rather than a single dominant "start review" CTA with decks
+secondary ("Study First"), or decks-as-the-home-screen with no separate due
+summary ("Deck Browser," closest to Anki's own layout). Picked specifically
+because it's the only one of the three with an obvious place for Phase 4's
+lesson path to slot into later (another section on the same dashboard)
+without a home-screen redesign. The review session itself (flip card, rate,
+keyboard shortcuts) doesn't vary by this choice — it's minimal by design,
+already fully specified by this phase's own scope.
+
+**2026-08-13 — After finishing any frontend section, ask specific review
+questions** (what to change, or confirm it's right) rather than a generic
+"let me know what you think" — point at the actual judgment calls made
+while building it.
+
+**2026-08-13 — Single-user/course bootstrap is silent, client-side, and
+idempotent** (`frontend/src/lib/bootstrap.ts`). No auth in v1 means nothing
+creates the one `User`/two `Language`s/one `Course` row everything else
+foreign-keys against — on app load, the frontend checks via the list
+endpoints and creates only whichever are missing, caching the result in
+`localStorage`. Matches "single-user, assumed" literally: no signup/setup
+screen ever shown. One `GET /users/{id}` revalidates the cache on every
+load before trusting it — a direct response to this project's own history
+(the dev Postgres volume gets reset/wiped across sessions; a stale cached
+`userId` would otherwise 409 every deck/card creation for a confusing
+reason). Verified live: reused the pre-existing `en` Language and the
+pre-existing dev-testing user, created `es` and the `en-es` Course fresh,
+zero duplicates on reload.
+
+**2026-08-13 — Frontend dev workflow is native (`npm run dev`), not
+Docker**, despite `docker compose` being the norm for the backend. Two
+concrete reasons from this project's own history: Docker Desktop/WSL2
+instability earlier this session (disk-full, backend crashes), and
+Windows' well-known slow bind-mount performance for `node_modules`/hot
+reload. `frontend/Dockerfile` and a `frontend` service in root
+`docker-compose.yml` still exist for parity/completeness (config validated
+via `docker compose config`), but aren't the verified day-to-day path.
+
+**2026-08-13 — Deck progress bars use a proxy metric** (share of a deck's
+cards not in `"new"` state), computed client-side, not real mastery
+scoring — no `UserProgress`/mastery data exists for decks yet (that table
+is `Skill`-scoped, Phase 4 territory), and this doesn't factor in FSRS's
+own stability-based recall-strength signal. Revisit with a real metric
+once Phase 4 or a backend aggregate makes one available.
+
+**2026-08-13 — `dueCards` and `cards` are sibling TanStack Query keys, not
+nested.** `["decks", id, "due-cards"]`, not `["decks", id, "cards", "due"]`.
+TanStack Query's `invalidateQueries` matches by key *prefix* — nesting
+would mean invalidating `cards` after a review (to refresh card-management
+and dashboard progress bars) also silently refetches the due-queue a
+review session is actively iterating over, reshuffling or dropping cards
+mid-session as ratings reschedule them server-side. The due queue is
+fetched once per session (`staleTime: Infinity`) and advanced through with
+local state instead.
+
+**2026-08-13 — `GET /api/cards` gained an optional `deck_id` filter**
+(backward compatible — omitted, it still returns everything). Phase 1
+never needed "all cards in one deck" as its own query; Phase 3's
+card-management page does. Small additive backend change alongside the
+CORS middleware Phase 3 also required (`app/config.py`'s new
+`frontend_origin` setting, `allow_credentials=False` since there's no
+auth/cookies to protect).
+
+**2026-08-13 — `next dev`/Next.js 16 auto-generates `AGENTS.md` (and a
+one-line `CLAUDE.md` pointing at it) inside `frontend/`, regenerated on
+every dev-server start** — framework-specific guidance for AI coding
+assistants, not project documentation. Both gitignored the same way the
+root `CLAUDE.md` already was (bare filename entries under "Editors / OS" in
+`.gitignore`, no explanatory comment) rather than deleted, since deleting
+would just have them silently reappear on the next `npm run dev`.
+
+**2026-08-13 — Frontend toolchain has three version-compatibility pins,
+each hit and fixed live, not preemptively guessed:** `vite` pinned to `^7`
+(Vite 8 defaults to the Rolldown bundler, which needs a native binding this
+machine's Node 20.13 — below Rolldown's ^20.19 floor — can't load);
+`@vitejs/plugin-react` pinned to `4.7.0` specifically (the first version
+with a Vite 7 peer range; the version npm resolved by default only
+supported Vite 8); `jsdom` pinned to `25` (jsdom 30's dependency chain pulls
+in an ESM-only package that fails to load under this same Node version).
+`vitest.config.ts` also had to become `vitest.config.mts` (forces ESM
+loading for that one file regardless of the rest of the project's CommonJS
+default) so `@vitejs/plugin-react` — itself ESM-only — could load at all.
+None of this affects the actual app (Next.js's own Turbopack pipeline was
+unaffected throughout) — purely a `vitest`/`vite` toolchain issue. Revisit
+these pins if the dev machine's Node version is ever upgraded past 20.19.
 
 **2026-08-11 — Working cadence: checkpoint at end of each phase.** Summarize,
 update this file, and wait for go-ahead before starting the next phase.
@@ -167,8 +264,32 @@ asyncio combination.
 
 ## Current Status
 
-**As of 2026-08-12:**
+**As of 2026-08-13:**
 
+- Done: **Phase 3 frontend is complete and verified end-to-end, in a real
+  browser against the live API** (not just type-checked/unit-tested).
+  Next.js 16 (App Router, TypeScript, Turbopack) + Tailwind v4, scaffolded
+  natively. "Quiet Focus" visual identity (Fraunces + Hanken Grotesk fonts
+  via `next/font/google`, tokens as Tailwind v4 `@theme inline` custom
+  properties) and "Unified Dashboard" layout, both proposed as 2-3 options
+  and approved before building — see the decision log. Three real pages:
+  the dashboard (due/new totals, per-deck progress bars, inline deck
+  creation), deck detail (add/edit/delete cards, `front_override`/
+  `back_override`/`direction`, no `VocabularyItem` required), and the
+  review session (real 3D card flip via Tailwind v4's native transform
+  utilities, keyboard shortcuts 1-4 + space, frozen due-queue advanced by
+  local state, optimistic rating submission). A silent client-side
+  bootstrap (`lib/bootstrap.ts`) handles the no-auth single-user/course
+  problem. Verified live end-to-end via browser automation: created a
+  deck, added two cards, ran a full review session (flip, rate via
+  keyboard, both mouse and key paths), then confirmed in Postgres directly
+  that FSRS state actually updated correctly (`hablar` rated Good →
+  `learning`/step 1; `gato` rated Easy → graduated straight to `review`,
+  11-day interval) and the dashboard's due/progress numbers updated after
+  leaving the session. 12/12 frontend tests pass (Vitest + RTL), all 35
+  backend tests still pass, `tsc --noEmit`/`eslint`/`ruff` all clean.
+  Required two small backend additions alongside: CORS middleware and a
+  `deck_id` filter on `GET /api/cards` (see decision log for both).
 - Done: **Phase 2 backend is complete and verified end-to-end.** FSRS
   scheduling via the official `fsrs` package (`app/services/fsrs_engine.py`),
   `POST /api/cards/{id}/review` (runs one FSRS review, updates the card,
@@ -217,7 +338,9 @@ asyncio combination.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: proceed to Phase 3 (frontend foundation).
+- Next: proceed to Phase 4 (structured lessons) — remember to ask detailed
+  clarifying questions before designing the conjugation/subjunctive feature,
+  per the Known Issues note below and the standing instruction to do so.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
@@ -234,14 +357,28 @@ asyncio combination.
   `backend/tests/conftest.py`), so it's safe to run against the same
   `DATABASE_URL` as dev. Revisit if that ever becomes a problem (e.g. tests
   needing to run concurrently with manual dev work against the same DB).
-- No CORS middleware on the backend yet — deferred until Phase 3 actually
-  stands up the Next.js frontend and its dev-server origin/port are known.
 - The dev Postgres volume (`pgdata`) accumulates manual-testing debris across
-  sessions (e.g. rows created via the `/docs` Swagger UI) since it's never
-  wiped — caused one pre-existing test to fail this session (see the
-  2026-08-12 Current Status entry). Worth a `docker compose down -v` some
-  session if this recurs, or giving manual-testing data an obviously-fake
-  naming convention.
+  sessions (e.g. rows created via the `/docs` Swagger UI, or now via the
+  frontend's own bootstrap) since it's never wiped — caused one pre-existing
+  test to fail in Phase 2 (see that Current Status entry at the time), and
+  in Phase 3 meant the bootstrap silently adopted a leftover
+  `sanity-p2@example.com` test user as "the" user rather than creating a
+  fresh one (harmless — single-user bootstrap is correctly not supposed to
+  care whether a user is "real" — but worth a rename or a
+  `docker compose down -v` some session; the auto-mode safety classifier
+  blocked an attempted `down -v` this session as too destructive to run
+  without explicit confirmation, which is the right call). Also caused a
+  *second* test collision in Phase 3 verification — `test_languages.py`'s
+  `test_list_languages_includes_created` hardcoded `"es"`, which by then
+  collided with a real Spanish `Language` row the frontend bootstrap had
+  created live; fixed the same way as the earlier `"en"` collision
+  (`"es-t"` instead). Worth treating this as a pattern now, not two
+  one-offs: any test hardcoding a plausible-sounding `Language.code` is at
+  risk here, not just the two that have actually broken so far.
+- Frontend toolchain needed three version pins below their defaults (`vite`,
+  `@vitejs/plugin-react`, `jsdom`) because this machine's Node (20.13) is
+  below 20.19 — see the 2026-08-13 decision log entry. Revisit/remove the
+  pins if Node ever gets upgraded.
 - The due-card queue's NEW-card query (`deck_id + state = 'new' ORDER BY
   created_at`) has no dedicated index beyond the composite's leading
   `deck_id` column — fine at portfolio scale, revisit with a

@@ -1,0 +1,80 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useState } from "react";
+import { CardForm } from "@/components/cards/CardForm";
+import { CardListItem } from "@/components/cards/CardListItem";
+import { useCards, useCreateCard, useDeleteCard, useUpdateCard } from "@/hooks/useCards";
+import { useDecks } from "@/hooks/useDecks";
+
+export default function DeckDetailPage() {
+  // useParams(), not the `params` prop: `params` is a Promise in server
+  // components as of Next 15+, and this page has no server-side data
+  // fetching to justify becoming one -- useParams() is the client-safe way
+  // to read the dynamic segment.
+  const { deckId } = useParams<{ deckId: string }>();
+  const [isAdding, setIsAdding] = useState(false);
+
+  // Reuses the same `decks` query the dashboard already populated, rather
+  // than a separate get-by-id fetch -- one cache, one source of truth.
+  const { data: decks = [] } = useDecks();
+  const deck = decks.find((d) => d.id === deckId);
+
+  const { data: cards = [], isPending } = useCards(deckId);
+  const createCard = useCreateCard(deckId);
+  const updateCard = useUpdateCard(deckId);
+  const deleteCard = useDeleteCard(deckId);
+
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-6 p-6">
+      <div>
+        <Link href="/" className="text-sm text-ink-soft">
+          ← Back
+        </Link>
+        <h1 className="mt-2 font-display text-3xl text-ink">{deck?.name ?? "Deck"}</h1>
+        {deck?.description && <p className="mt-1 text-ink-soft">{deck.description}</p>}
+      </div>
+
+      <Link
+        href={`/decks/${deckId}/review`}
+        className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg"
+      >
+        Start review
+      </Link>
+
+      <section className="flex flex-col gap-3">
+        {cards.map((card) => (
+          <CardListItem
+            key={card.id}
+            card={card}
+            isUpdating={updateCard.isPending}
+            onUpdate={(values) => updateCard.mutate({ id: card.id, payload: values })}
+            onDelete={() => deleteCard.mutate(card.id)}
+          />
+        ))}
+        {!isPending && cards.length === 0 && (
+          <p className="text-ink-soft">No cards yet — add one below.</p>
+        )}
+      </section>
+
+      {isAdding ? (
+        <CardForm
+          isSubmitting={createCard.isPending}
+          onCancel={() => setIsAdding(false)}
+          onSubmit={(values) => {
+            createCard.mutate({ deck_id: deckId, ...values }, { onSuccess: () => setIsAdding(false) });
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsAdding(true)}
+          className="self-start border border-dashed border-line px-4 py-2 text-sm text-ink-soft"
+        >
+          + Add card
+        </button>
+      )}
+    </main>
+  );
+}

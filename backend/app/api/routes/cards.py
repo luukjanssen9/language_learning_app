@@ -34,8 +34,13 @@ async def create_card(payload: CardCreate, db: AsyncSession = Depends(get_db)) -
 
 
 @router.get("", response_model=list[CardRead])
-async def list_cards(db: AsyncSession = Depends(get_db)) -> list[Card]:
-    result = await db.execute(select(Card).order_by(Card.created_at))
+async def list_cards(
+    deck_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+) -> list[Card]:
+    query = select(Card).order_by(Card.created_at)
+    if deck_id is not None:
+        query = query.where(Card.deck_id == deck_id)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 

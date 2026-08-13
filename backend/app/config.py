@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # --- App ---
     environment: str = "development"
     secret_key: str = "dev-secret-change-me"
+    frontend_origin: str = "http://localhost:3000"
 
 
 @lru_cache

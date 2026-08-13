@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* "Quiet Focus" -- the app's fixed visual identity (chosen 2026-08-13).
+   Deliberately a single committed light palette, no dark-mode variant --
+   this is a brand identity, not an adaptive theme. */
+@theme inline {
+  --color-bg: #eae7de;
+  --color-surface: #dfdbcc;
+  --color-line: #c9c3b0;
+  --color-ink: #262319;
+  --color-ink-soft: #6b6656;
+  --color-accent: #4b6c57;
+
+  --color-rating-again: #a85a3e;
+  --color-rating-hard: #a8863d;
+  --color-rating-good: #4b6c57;
+  --color-rating-easy: #3e6b7a;
+
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-hanken), system-ui, sans-serif;
+}
+
+body {
+  @apply bg-bg text-ink font-sans antialiased;
+}
