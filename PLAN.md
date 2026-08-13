@@ -610,8 +610,7 @@ disappeared once nothing was left to fix.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
 - Next: proceed to Phase 5 (core AI/NLP features) — LLM service layer
-  (provider-agnostic, Gemini default; see
-  `.claude/skills/llm-provider-notes/`), example generation, free-text
+  (provider-agnostic, Gemini default), example generation, free-text
   grading, auto-card-generation, mnemonics, adaptive weak-point targeting.
 - Open questions: none blocking.
 
