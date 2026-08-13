@@ -43,8 +43,9 @@ Living project plan and status log. Read at the start of every session; update C
   scenarios constrained to known vocabulary, in-context correction.
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
   comparison/feedback.
-- [ ] **Phase 8 — Scalability check, polish & deploy**: add a second
-  language's config to prove the architecture generalizes; performance/cost
+- [ ] **Phase 8 — Scalability check, polish & deploy**: ~~add a second
+  language's config to prove the architecture generalizes~~ — done early,
+  2026-08-14 (v1 Dutch course, see Decisions Log); performance/cost
   review; tests; deployment; final README with setup, architecture overview,
   screenshots/demo.
 
@@ -509,10 +510,85 @@ mistake revealed "Correct: dice" while staying editable, fixing it and
 clicking Recheck brought the verb to 6/6 and the button correctly
 disappeared once nothing was left to fix.
 
+**2026-08-14 — v1 Dutch course added, ahead of the Phase 8 slot originally
+planned for it** — the point was to actually test this project's core
+"language-agnostic by design" principle, not defer it. Worth doing now
+rather than after Phase 8 stacks more Spanish-only assumptions on top.
+No Subjunctive category for Dutch (its subjunctive is archaic/non-productive
+in modern usage), on request.
+
+Found and fixed **three real places Spanish specifics had leaked into
+code instead of `grammar_config` data**: (1) `ConjugationDrill.tsx`'s
+pronoun labels were a hardcoded Spanish array — moved into
+`grammar_config.conjugation.pronoun_labels` per language (the six
+internal slot keys stay literal Spanish words as opaque identifiers,
+deliberately not renamed — touching all 612 already-seeded Spanish
+exercises for a purely cosmetic gain wasn't worth it, documented inline).
+(2) `conjugate()`'s present-perfect branch hardcoded `"haber"` as the
+auxiliary — Dutch splits by verb (most take `hebben`, motion/change-of-
+state verbs like `gaan`/`komen` take `zijn`), so this became a per-
+language default (`grammar_config.conjugation.perfect_auxiliary`) with a
+per-verb override (`irregular_verbs[verb].perfect_auxiliary`); Spanish's
+config now declares `perfect_auxiliary: "haber"` explicitly instead of
+relying on a Python-level default (which stays only for old test
+fixtures). (3) `_participle()`'s regular-formation fallback (stem +
+"ado"/"ido") is Spanish's own suffix rule, not generalized — Dutch
+participles are prefix *and* suffix (`ge-` + stem + `-d`/`-t`, with real
+spelling rules governing both the suffix choice and several stems'
+vowel length) and building a genuinely pluggable formation-rule system
+for two data points was judged premature; every Dutch verb instead
+provides its participle via `irregular_participles` explicitly (a
+legitimate use of the same override table Spanish already has 4 entries
+in, not a workaround) — flagged in a comment for revisiting if a third
+language also can't use the fallback.
+
+**Content**: new `nl`/English→Dutch `Language`/`Course` rows. 8 verbs
+(zijn, hebben, gaan, komen, werken, maken, wonen, spelen), each fully
+hand-specified in `irregular_verbs` — deliberately not routed through the
+regular-endings fallback at all, since Dutch's real vowel-length spelling
+rules (e.g. "wonen" → stem "woon", not "won") would make a naive
+infinitive-minus-two-letters stem wrong for several of them; a best-
+effort `regular_endings.en` rule exists for architectural completeness
+but isn't exercised by any seeded exercise. Three tenses, not Spanish's
+six: present, one simple past (Dutch doesn't split preterite/imperfect
+the way Spanish does), and present perfect — no periphrastic future
+("zullen" + infinitive is a different compound shape than auxiliary +
+participle, out of scope for now). 8 × 3 × 6 = 144 conjugation exercises,
+generated the same loop pattern as Spanish's 612, seeded via new parallel
+`_seed_dutch_*` functions alongside the Spanish ones rather than a shared
+parameterized framework (two languages don't justify that abstraction
+yet — a third would be the right trigger). Two vocab skills (Greetings,
+Family) mirroring the Spanish ones' exact exercise shape.
+
+Verified: a standalone resolution-check script confirmed all 144
+(verb, tense, pronoun) combinations resolve before seeding, plus hand-
+verified spot checks (`zijn`/present_perfect/yo → "ben geweest",
+`gaan`/present_perfect/yo → "ben gegaan", `werken`/present_perfect/yo →
+"heb gewerkt" — confirming the hebben/zijn split actually works). Live
+end to end: switching the course dropdown to Dutch lands on `/course`
+showing only Vocabulary and Verb Conjugation (no Subjunctive card);
+completed a Dutch vocab exercise; the conjugation drill correctly showed
+ik/jij/hij/wij/jullie/zij instead of Spanish's labels; `werken` graded
+6/6 correct through the UI; `gaan`'s hebben/zijn split confirmed through
+the live API directly ("ben gegaan" correct, "heb gegaan" — the
+plausible-looking wrong-auxiliary mistake — correctly graded wrong).
+Switched back to Spanish and confirmed nothing there changed: still 3
+categories including Subjunctive, still usted/ustedes labels. 70 backend
+tests pass (2 new), 12 frontend tests, `tsc`/eslint/ruff all clean.
+
 ## Current Status
 
-**As of 2026-08-13:**
+**As of 2026-08-14:**
 
+- Done: **v1 Dutch course added, complete and verified end-to-end** —
+  second language, ahead of its originally-planned Phase 8 slot,
+  specifically to test the "language-agnostic by design" claim for real.
+  Found and fixed three real Spanish-hardcoded spots (pronoun labels,
+  present-perfect auxiliary, participle-formation fallback) along the
+  way. See the decision log entry just above for the full breakdown.
+- Done: **Grading is accent-insensitive, and conjugation mistakes reveal
+  the correct answer while staying editable for a retry** — see the
+  decision log entry above that one.
 - Done: **Phase 4's course navigation was reworked after using the built
   version, and is complete and verified end-to-end** — decks/course split
   onto separate pages, a general course switcher, skills regrouped into

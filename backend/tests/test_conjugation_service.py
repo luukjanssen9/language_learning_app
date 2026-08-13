@@ -100,6 +100,42 @@ def test_present_perfect_rejects_non_indicative_mood():
         conjugate(GRAMMAR_CONFIG, "hablar", "present_perfect", "subjunctive", "yo")
 
 
+def test_present_perfect_uses_language_default_auxiliary():
+    # A language-level perfect_auxiliary other than the "haber" fallback
+    # is honored -- proves this is config-driven, not just the Python
+    # default (see PLAN.md's 2026-08-14 "v1 Dutch course" decision).
+    config = {
+        "conjugation": {
+            "regular_endings": {},
+            "irregular_verbs": {"hebben": {"present": {"indicative": {"yo": "heb"}}}},
+            "irregular_participles": {"werken": "gewerkt"},
+            "perfect_auxiliary": "hebben",
+        },
+    }
+    assert conjugate(config, "werken", "present_perfect", "indicative", "yo") == "heb gewerkt"
+
+
+def test_present_perfect_per_verb_auxiliary_override_wins_over_language_default():
+    config = {
+        "conjugation": {
+            "regular_endings": {},
+            "irregular_verbs": {
+                "hebben": {"present": {"indicative": {"yo": "heb"}}},
+                "zijn": {
+                    "perfect_auxiliary": "zijn",
+                    "present": {"indicative": {"yo": "ben"}},
+                },
+                "gaan": {"perfect_auxiliary": "zijn"},
+            },
+            "irregular_participles": {"gaan": "gegaan"},
+            "perfect_auxiliary": "hebben",
+        },
+    }
+    # "gaan" overrides its auxiliary to "zijn" even though the language
+    # default is "hebben" -- "ben gegaan", not the wrong "heb gegaan".
+    assert conjugate(config, "gaan", "present_perfect", "indicative", "yo") == "ben gegaan"
+
+
 def test_verb_irregular_in_one_tense_falls_back_regularly_in_another():
     # "ser" is irregular in present (soy) but the fixture gives it no
     # preterite override -- falls back to the regular -er preterite rule

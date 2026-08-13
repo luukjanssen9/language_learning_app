@@ -15,6 +15,9 @@ const TENSE_MOOD_LABELS: Record<string, string> = {
   "future-indicative": "Future",
   "present-subjunctive": "Present Subjunctive",
   "present_perfect-indicative": "Present Perfect",
+  // Dutch has one simple past, not a preterite/imperfect split -- its
+  // own tense key rather than overloading "imperfect".
+  "past-indicative": "Past",
 };
 
 /** Distinct tense/mood combos present in a conjugation skill's exercises,

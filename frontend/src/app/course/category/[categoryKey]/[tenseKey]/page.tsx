@@ -24,9 +24,18 @@ const EMPTY_EXERCISES: LessonExercise[] = [];
 
 export default function ConjugationTensePage() {
   const { categoryKey, tenseKey } = useParams<{ categoryKey: string; tenseKey: string }>();
-  const { practiceCategories, selectedCourseId } = useCourseContext();
+  const { practiceCategories, selectedCourseId, selectedTargetLanguage } = useCourseContext();
 
   const category = practiceCategories.find((c) => c.slug === categoryKey);
+  // Every seeded language declares its own pronoun_labels in
+  // grammar_config.conjugation (2026-08-14 "v1 Dutch course" decision);
+  // ConjugationDrill itself falls back to the raw internal key per-slot
+  // if a label is ever missing, so `{}` here is a safe worst case, not
+  // silently wrong.
+  const conjugationConfig = selectedTargetLanguage?.grammar_config.conjugation as
+    | { pronoun_labels?: Record<string, string> }
+    | undefined;
+  const pronounLabels = conjugationConfig?.pronoun_labels ?? {};
   const { data: skills = [] } = useSkills(selectedCourseId);
   const skillId = skills.find((s) => s.specialty_module === category?.key)?.id;
 
@@ -101,6 +110,7 @@ export default function ConjugationTensePage() {
         <ConjugationDrill
           key={pickId}
           verbGroup={group}
+          pronounLabels={pronounLabels}
           onTryAnother={() => {
             setGroup(pickRandom(groups));
             setPickId((n) => n + 1);

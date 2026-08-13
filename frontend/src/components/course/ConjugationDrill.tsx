@@ -5,19 +5,16 @@ import { useSubmitAttempt } from "@/hooks/useSubmitAttempt";
 import type { VerbGroup } from "@/lib/practiceCategories";
 import { useBootstrapContext } from "@/providers/BootstrapProvider";
 
-// Internal pronoun keys (yo/tú/él/nosotros/vosotros/ellos) match what's
-// stored in every seeded exercise's prompt.pronoun -- "usted"/"ustedes"
-// are display-only labels for the 3rd-person slots here, since usted/él
-// and ustedes/ellos conjugate identically in Spanish. No data changes,
-// just friendlier labels for this one component.
-const PRONOUN_DISPLAY: { key: string; label: string }[] = [
-  { key: "yo", label: "yo" },
-  { key: "tú", label: "tú" },
-  { key: "él", label: "usted" },
-  { key: "nosotros", label: "nosotros" },
-  { key: "vosotros", label: "vosotros" },
-  { key: "ellos", label: "ustedes" },
-];
+// Fixed structural order of the six internal pronoun-slot keys -- these
+// happen to be Spanish words (from Stage A) but are opaque identifiers
+// at this point, matched against every seeded exercise's prompt.pronoun
+// regardless of target language. Display text for each slot comes from
+// the `pronounLabels` prop instead (per-language, from
+// grammar_config.conjugation.pronoun_labels -- e.g. Spanish maps "él" to
+// "usted"/"ellos" to "ustedes" since those pairs conjugate identically;
+// Dutch maps the same six keys to ik/jij/hij/wij/jullie/zij). Falls back
+// to the key itself if a language's config doesn't provide a label.
+const PRONOUN_ORDER = ["yo", "tú", "él", "nosotros", "vosotros", "ellos"] as const;
 
 interface FieldResult {
   isCorrect: boolean;
@@ -26,9 +23,11 @@ interface FieldResult {
 
 export function ConjugationDrill({
   verbGroup,
+  pronounLabels,
   onTryAnother,
 }: {
   verbGroup: VerbGroup;
+  pronounLabels: Record<string, string>;
   onTryAnother: () => void;
 }) {
   const { userId } = useBootstrapContext();
@@ -37,7 +36,7 @@ export function ConjugationDrill({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Record<string, FieldResult> | null>(null);
 
-  const allFilled = PRONOUN_DISPLAY.every(({ key }) => (answers[key] ?? "").trim().length > 0);
+  const allFilled = PRONOUN_ORDER.every((key) => (answers[key] ?? "").trim().length > 0);
   const hasWrongField = results ? Object.values(results).some((r) => !r.isCorrect) : false;
 
   // Reused for both the first check and every recheck -- re-submitting an
@@ -45,7 +44,7 @@ export function ConjugationDrill({
   // there's no need for a separate "only resubmit the wrong ones" path.
   async function handleCheck() {
     const entries = await Promise.all(
-      PRONOUN_DISPLAY.map(async ({ key }) => {
+      PRONOUN_ORDER.map(async (key) => {
         const exercise = verbGroup.exercisesByPronoun[key];
         const answer = (answers[key] ?? "").trim();
         const data = await submitAttempt.mutateAsync({
@@ -68,7 +67,8 @@ export function ConjugationDrill({
       <p className="text-center font-display text-2xl text-ink">{verbGroup.infinitive}</p>
 
       <div className="flex flex-col gap-2">
-        {PRONOUN_DISPLAY.map(({ key, label }) => {
+        {PRONOUN_ORDER.map((key) => {
+          const label = pronounLabels[key] ?? key;
           const result = results?.[key];
           // Correct fields lock once graded (nothing to fix); wrong ones
           // stay editable so a mistake can be corrected in place rather

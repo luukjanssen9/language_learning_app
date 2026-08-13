@@ -37,6 +37,14 @@ EN_CODE = "en"
 ES_CODE = "es"
 COURSE_SLUG = "en-es"
 
+# Dutch (2026-08-14 "v1 Dutch course" decision): a second language,
+# specifically to prove this project's "language-agnostic by design"
+# principle against something other than Spanish -- see the three
+# hardcoded-to-Spanish spots that decision's PLAN.md entry documents
+# finding and fixing along the way.
+NL_CODE = "nl"
+DUTCH_COURSE_SLUG = "en-nl"
+
 # Six-person paradigm. "él" also covers "ella"/"usted" and "ellos" also
 # covers "ellas"/"ustedes" -- those pairs conjugate identically in Spanish,
 # so this is the one set of internal keys; the frontend's conjugation
@@ -359,6 +367,24 @@ SPANISH_GRAMMAR_CONFIG = {
             "poner": "puesto",
             "ver": "visto",
         },
+        # Spanish only ever needs one auxiliary -- explicit here (rather
+        # than relying on conjugate()'s Python-level "haber" fallback,
+        # which now exists only for backward-compat with small synthetic
+        # test fixtures) since Dutch's config declares this too, and
+        # per-verb overrides are only possible when a language default
+        # exists to override (see PLAN.md's 2026-08-14 "v1 Dutch course"
+        # decision).
+        "perfect_auxiliary": "haber",
+        # Rendered by the conjugation drill (ConjugationDrill.tsx)
+        # instead of a hardcoded label array -- "usted"/"ustedes" for the
+        # 3rd-person slots since usted/él and ustedes/ellos conjugate
+        # identically; the internal keys themselves stay literal Spanish
+        # words purely as historical opaque identifiers (see the
+        # 2026-08-14 decision for why they aren't renamed).
+        "pronoun_labels": {
+            "yo": "yo", "tú": "tú", "él": "usted",
+            "nosotros": "nosotros", "vosotros": "vosotros", "ellos": "ustedes",
+        },
     },
     # Rendered generically by the frontend (lib/practiceCategories.ts),
     # not hardcoded per-language category names in component logic --
@@ -383,6 +409,169 @@ SPANISH_GRAMMAR_CONFIG = {
     ],
 }
 
+
+DUTCH_GRAMMAR_CONFIG = {
+    "conjugation": {
+        # Best-effort simple present-tense rule, kept for architectural
+        # completeness -- not actually exercised by DUTCH_CONJUGATION_VERBS
+        # below, all of which are fully specified via irregular_verbs
+        # instead. Dutch has real spelling rules (open/closed-syllable
+        # vowel doubling, e.g. "wonen" -> stem "woon" not "won") that a
+        # naive infinitive-minus-two-letters stem can't reproduce -- see
+        # _participle()'s docstring for the same issue on the participle
+        # side. Every verb chosen for this course avoids the doubling
+        # trap for present tense specifically, but relying on that by
+        # convention rather than modeling the rule felt too fragile to
+        # extend to new verbs later, so nothing here actually depends on
+        # this fallback resolving correctly.
+        "regular_endings": {
+            "en": {
+                "present": {"indicative": _forms("", "t", "t", "en", "en", "en")},
+            },
+        },
+        "irregular_verbs": {
+            "zijn": {
+                "perfect_auxiliary": "zijn",
+                "present": {
+                    "indicative": _forms("ben", "bent", "is", "zijn", "zijn", "zijn"),
+                },
+                "past": {
+                    "indicative": _forms("was", "was", "was", "waren", "waren", "waren"),
+                },
+            },
+            "hebben": {
+                "present": {
+                    "indicative": _forms(
+                        "heb", "hebt", "heeft", "hebben", "hebben", "hebben"
+                    ),
+                },
+                "past": {
+                    "indicative": _forms(
+                        "had", "had", "had", "hadden", "hadden", "hadden"
+                    ),
+                },
+            },
+            "gaan": {
+                "perfect_auxiliary": "zijn",
+                "present": {
+                    "indicative": _forms("ga", "gaat", "gaat", "gaan", "gaan", "gaan"),
+                },
+                "past": {
+                    "indicative": _forms(
+                        "ging", "ging", "ging", "gingen", "gingen", "gingen"
+                    ),
+                },
+            },
+            "komen": {
+                "perfect_auxiliary": "zijn",
+                "present": {
+                    "indicative": _forms(
+                        "kom", "komt", "komt", "komen", "komen", "komen"
+                    ),
+                },
+                "past": {
+                    "indicative": _forms(
+                        "kwam", "kwam", "kwam", "kwamen", "kwamen", "kwamen"
+                    ),
+                },
+            },
+            "werken": {
+                "present": {
+                    "indicative": _forms(
+                        "werk", "werkt", "werkt", "werken", "werken", "werken"
+                    ),
+                },
+                # "werk" ends in "k" (a "'t kofschip" consonant) -> "-te",
+                # not the "-de" that "wonen"/"spelen" below take. Same
+                # spelling-rule shape as Spanish's kofschip-adjacent
+                # accent overrides -- a per-verb override, not a second
+                # regular class, since the infinitive ending alone
+                # ("-en") can't distinguish the two.
+                "past": {
+                    "indicative": _forms(
+                        "werkte", "werkte", "werkte",
+                        "werkten", "werkten", "werkten",
+                    ),
+                },
+            },
+            "maken": {
+                "present": {
+                    "indicative": _forms(
+                        "maak", "maakt", "maakt", "maken", "maken", "maken"
+                    ),
+                },
+                "past": {
+                    "indicative": _forms(
+                        "maakte", "maakte", "maakte",
+                        "maakten", "maakten", "maakten",
+                    ),
+                },
+            },
+            "wonen": {
+                "present": {
+                    "indicative": _forms(
+                        "woon", "woont", "woont", "wonen", "wonen", "wonen"
+                    ),
+                },
+                "past": {
+                    "indicative": _forms(
+                        "woonde", "woonde", "woonde",
+                        "woonden", "woonden", "woonden",
+                    ),
+                },
+            },
+            "spelen": {
+                "present": {
+                    "indicative": _forms(
+                        "speel", "speelt", "speelt", "spelen", "spelen", "spelen"
+                    ),
+                },
+                "past": {
+                    "indicative": _forms(
+                        "speelde", "speelde", "speelde",
+                        "speelden", "speelden", "speelden",
+                    ),
+                },
+            },
+        },
+        # Every verb this course drills provides its participle here --
+        # see _participle()'s docstring for why Dutch doesn't use the
+        # regular-fallback rule at all (it's Spanish's own suffix
+        # pattern, not a generic one).
+        "irregular_participles": {
+            "zijn": "geweest",
+            "hebben": "gehad",
+            "gaan": "gegaan",
+            "komen": "gekomen",
+            "werken": "gewerkt",
+            "maken": "gemaakt",
+            "wonen": "gewoond",
+            "spelen": "gespeeld",
+        },
+        # Most Dutch verbs take "hebben"; motion/change-of-state verbs
+        # (gaan, komen, and zijn itself) override to "zijn" above -- see
+        # conjugate()'s module docstring for how the two combine.
+        "perfect_auxiliary": "hebben",
+        "pronoun_labels": {
+            "yo": "ik", "tú": "jij", "él": "hij",
+            "nosotros": "wij", "vosotros": "jullie", "ellos": "zij",
+        },
+    },
+    # No "subjunctive" entry -- Dutch's subjunctive is archaic/non-
+    # productive in modern usage, not a gap in the app (2026-08-14
+    # decision, on request).
+    "practice_categories": [
+        {"slug": "vocabulary", "key": None, "label": "Vocabulary", "kind": "skill_list"},
+        {
+            "slug": "verb-conjugation",
+            "key": "dutch-verb-conjugation",
+            "label": "Verb Conjugation",
+            "kind": "conjugation_drill",
+        },
+    ],
+}
+
+
 async def _get_or_create_language(session, code: str, name: str) -> Language:
     result = await session.execute(select(Language).where(Language.code == code))
     language = result.scalar_one_or_none()
@@ -393,7 +582,9 @@ async def _get_or_create_language(session, code: str, name: str) -> Language:
     return language
 
 
-async def _get_or_create_course(session, base: Language, target: Language) -> Course:
+async def _get_or_create_course(
+    session, base: Language, target: Language, *, name: str, slug: str
+) -> Course:
     result = await session.execute(
         select(Course).where(
             Course.base_language_id == base.id, Course.target_language_id == target.id
@@ -404,8 +595,8 @@ async def _get_or_create_course(session, base: Language, target: Language) -> Co
         course = Course(
             base_language_id=base.id,
             target_language_id=target.id,
-            name="English to Spanish",
-            slug=COURSE_SLUG,
+            name=name,
+            slug=slug,
         )
         session.add(course)
         await session.flush()
@@ -633,6 +824,126 @@ async def _seed_conjugation_skill(session, course: Course, prerequisite: Skill) 
     return skill
 
 
+# Dutch content -- parallel functions/constants alongside the Spanish
+# ones above, rather than a shared parameterized framework. Two
+# languages don't justify that abstraction yet; a third would be the
+# right trigger (2026-08-14 "v1 Dutch course" decision).
+
+
+async def _seed_dutch_greetings_skill(session, course: Course) -> Skill:
+    skill = await _get_or_create_skill(
+        session, course, slug="greetings", name="Greetings", order_index=0
+    )
+    await _delete_existing_exercises(session, skill)
+
+    hallo = await _get_or_create_vocab(session, course, "hallo", "hello")
+    tot_ziens = await _get_or_create_vocab(session, course, "tot ziens", "goodbye")
+    dank_je_wel = await _get_or_create_vocab(session, course, "dank je wel", "thank you")
+
+    await _add_exercise(
+        session, skill, ExerciseType.MULTIPLE_CHOICE,
+        {
+            "question": "How do you say 'hello'?",
+            "options": ["hallo", "tot ziens", "dank je wel"],
+            "correct_index": 0,
+        },
+        0, vocab=hallo,
+    )
+    await _add_exercise(
+        session, skill, ExerciseType.TRANSLATION,
+        {"source_text": "goodbye", "correct_answer": "tot ziens"},
+        1, vocab=tot_ziens,
+    )
+    await _add_exercise(
+        session, skill, ExerciseType.FILL_IN_BLANK,
+        {"sentence": "___ voor je hulp!", "correct_answer": "dank je wel"},
+        2, vocab=dank_je_wel,
+    )
+    return skill
+
+
+async def _seed_dutch_family_skill(session, course: Course, prerequisite: Skill) -> Skill:
+    skill = await _get_or_create_skill(
+        session, course, slug="family", name="Family", order_index=1, prerequisite=prerequisite
+    )
+    await _delete_existing_exercises(session, skill)
+
+    moeder = await _get_or_create_vocab(session, course, "moeder", "mother")
+    vader = await _get_or_create_vocab(session, course, "vader", "father")
+    broer = await _get_or_create_vocab(session, course, "broer", "brother")
+
+    await _add_exercise(
+        session, skill, ExerciseType.MULTIPLE_CHOICE,
+        {
+            "question": "How do you say 'mother'?",
+            "options": ["vader", "moeder", "broer"],
+            "correct_index": 1,
+        },
+        0, vocab=moeder,
+    )
+    await _add_exercise(
+        session, skill, ExerciseType.TRANSLATION,
+        {"source_text": "father", "correct_answer": "vader"},
+        1, vocab=vader,
+    )
+    await _add_exercise(
+        session, skill, ExerciseType.FILL_IN_BLANK,
+        {"sentence": "Mijn ___ is ouder dan ik.", "correct_answer": "broer"},
+        2, vocab=broer,
+    )
+    return skill
+
+
+# All 8 verbs are fully specified in DUTCH_GRAMMAR_CONFIG's irregular_verbs
+# (see that config's comments for why) -- every combination below resolves
+# through the irregular table, never the regular-endings fallback.
+DUTCH_CONJUGATION_VERBS = (
+    "zijn", "hebben", "gaan", "komen", "werken", "maken", "wonen", "spelen",
+)
+
+# No preterite/imperfect split (Dutch has one simple past, not two), no
+# future (periphrastic -- "zullen" + infinitive, a different compound
+# shape than present perfect's auxiliary + participle), no subjunctive
+# (archaic/non-productive) -- a smaller tense set than Spanish's six, not
+# a simplification of any one tense (2026-08-14 decision).
+DUTCH_CONJUGATION_TENSE_MOOD_COMBOS = (
+    ("present", "indicative"),
+    ("past", "indicative"),
+    ("present_perfect", "indicative"),
+)
+
+
+async def _seed_dutch_conjugation_skill(session, course: Course, prerequisite: Skill) -> Skill:
+    skill = await _get_or_create_skill(
+        session,
+        course,
+        slug="verb-conjugation",
+        name="Verb Conjugation",
+        order_index=2,
+        prerequisite=prerequisite,
+        specialty_module="dutch-verb-conjugation",
+    )
+    await _delete_existing_exercises(session, skill)
+
+    order = 0
+    for infinitive in DUTCH_CONJUGATION_VERBS:
+        for tense, mood in DUTCH_CONJUGATION_TENSE_MOOD_COMBOS:
+            for pronoun in _PRONOUNS:
+                await _add_exercise(
+                    session, skill, ExerciseType.CONJUGATION,
+                    {
+                        "infinitive": infinitive,
+                        "tense": tense,
+                        "mood": mood,
+                        "pronoun": pronoun,
+                    },
+                    order, specialty_module="dutch-verb-conjugation",
+                )
+                order += 1
+
+    return skill
+
+
 TRIGGER_MODULE = "spanish-subjunctive-triggers"
 
 # Each entry: skill slug, name, intro (explanation + examples), and a list
@@ -791,20 +1102,34 @@ async def seed() -> None:
     async with AsyncSessionLocal() as session:
         english = await _get_or_create_language(session, EN_CODE, "English")
         spanish = await _get_or_create_language(session, ES_CODE, "Spanish")
+        dutch = await _get_or_create_language(session, NL_CODE, "Dutch")
         # Always overwrite: this is seed/dev content with one canonical
         # source (this file), not user data -- re-running should converge
         # on exactly this config, not accumulate drift.
         spanish.grammar_config = SPANISH_GRAMMAR_CONFIG
+        dutch.grammar_config = DUTCH_GRAMMAR_CONFIG
 
-        course = await _get_or_create_course(session, english, spanish)
+        course = await _get_or_create_course(
+            session, english, spanish, name="English to Spanish", slug=COURSE_SLUG
+        )
+        dutch_course = await _get_or_create_course(
+            session, english, dutch, name="English to Dutch", slug=DUTCH_COURSE_SLUG
+        )
 
         greetings = await _seed_greetings_skill(session, course)
         family = await _seed_family_skill(session, course, prerequisite=greetings)
         conjugation = await _seed_conjugation_skill(session, course, prerequisite=family)
         await _seed_subjunctive_trigger_skills(session, course, prerequisite=conjugation)
 
+        dutch_greetings = await _seed_dutch_greetings_skill(session, dutch_course)
+        dutch_family = await _seed_dutch_family_skill(
+            session, dutch_course, prerequisite=dutch_greetings
+        )
+        await _seed_dutch_conjugation_skill(session, dutch_course, prerequisite=dutch_family)
+
         await session.commit()
         print(f"Seeded course {course.slug!r} (id={course.id})")
+        print(f"Seeded course {dutch_course.slug!r} (id={dutch_course.id})")
 
 
 if __name__ == "__main__":

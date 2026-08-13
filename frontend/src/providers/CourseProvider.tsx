@@ -15,6 +15,12 @@ interface CourseContextValue {
   selectedCourseId: string;
   setSelectedCourseId: (id: string) => void;
   practiceCategories: PracticeCategory[];
+  // The selected course's target Language row -- exposed generally
+  // (not just its derived practiceCategories) so other per-language
+  // grammar_config content (e.g. the conjugation drill's pronoun
+  // labels) has one shared place to read it from, instead of every
+  // page re-deriving course -> target language itself.
+  selectedTargetLanguage: Language | undefined;
 }
 
 const CourseContext = createContext<CourseContextValue | null>(null);
@@ -73,6 +79,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     selectedCourseId,
     setSelectedCourseId,
     practiceCategories,
+    selectedTargetLanguage: targetLanguage,
   };
 
   return <CourseContext.Provider value={value}>{children}</CourseContext.Provider>;
