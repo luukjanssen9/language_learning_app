@@ -12,6 +12,7 @@ dependencies = [
     "pydantic[email]>=2.9",
     "pydantic-settings>=2.6",
     "greenlet>=3.1",
+    "fsrs>=6.3,<7",
 ]
 
 [project.optional-dependencies]

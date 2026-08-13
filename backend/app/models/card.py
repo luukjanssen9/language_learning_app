@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,9 +15,16 @@ class Card(UUIDPkMixin, CreatedAtMixin, Base):
     """
 
     __tablename__ = "cards"
+    __table_args__ = (
+        # The due-card queue always filters deck_id + due_at together (see
+        # api/routes/cards.py's list_due_cards); this also serves plain
+        # deck_id-only lookups as a leading-column prefix, so there's no
+        # separate single-column deck_id index.
+        Index("ix_cards_deck_id_due_at", "deck_id", "due_at"),
+    )
 
     deck_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("decks.id"), nullable=False, index=True
+        PG_UUID(as_uuid=True), ForeignKey("decks.id"), nullable=False
     )
     vocabulary_item_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("vocabulary_items.id"), nullable=True, index=True
@@ -34,17 +41,20 @@ class Card(UUIDPkMixin, CreatedAtMixin, Base):
         nullable=False,
     )
 
-    # --- FSRS scheduling state ---
+    # --- FSRS scheduling state --- (field order mirrors fsrs.Card's own
+    # state/step/stability/difficulty/due/last_review ordering)
     state: Mapped[CardState] = mapped_column(
         pg_enum(CardState, length=20),
         default=CardState.NEW,
         nullable=False,
     )
+    # Same-day learning/relearning step counter (index into the FSRS
+    # scheduler's learning_steps/relearning_steps) — None once a card has
+    # graduated to Review and has no notion of "steps" anymore.
+    step: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stability: Mapped[float | None] = mapped_column(Float, nullable=True)
     difficulty: Mapped[float | None] = mapped_column(Float, nullable=True)
-    due_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
-    )
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     lapses: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_reviewed_at: Mapped[datetime | None] = mapped_column(

@@ -4,11 +4,15 @@ from httpx import AsyncClient
 
 
 async def test_create_and_get_language(client: AsyncClient):
-    create_resp = await client.post("/api/languages", json={"code": "en", "name": "English"})
+    # "en"/"English" deliberately avoided as the code here: it collided
+    # with leftover data from manual testing against the dev DB, which
+    # doesn't get wiped between docker compose restarts (only between
+    # test runs, via each test's own rolled-back transaction).
+    create_resp = await client.post("/api/languages", json={"code": "en-t", "name": "Test English"})
     assert create_resp.status_code == 201
     body = create_resp.json()
-    assert body["code"] == "en"
-    assert body["name"] == "English"
+    assert body["code"] == "en-t"
+    assert body["name"] == "Test English"
     assert body["script_direction"] == "ltr"
     assert body["grammar_config"] == {}
 

@@ -10,9 +10,10 @@ Living project plan and status log. Read at the start of every session; update C
   (proposed for review first), FastAPI + Postgres + SQLAlchemy + Alembic
   wired up, basic CRUD endpoints. (No auth — v1 is single-user.) Code
   complete and verified end-to-end against a live Postgres instance.
-- [ ] **Phase 2 — Spaced repetition engine**: FSRS scheduling implemented,
-  review endpoint + due-card queue logic, unit tests for scheduling edge
-  cases.
+- [x] **Phase 2 — Spaced repetition engine**: FSRS scheduling implemented
+  (official `fsrs` package), review endpoint + due-card queue logic, unit
+  and integration tests for scheduling edge cases. Code complete and
+  verified end-to-end against a live Postgres instance.
 - [ ] **Phase 3 — Frontend foundation**: Next.js + TypeScript + Tailwind
   scaffold (mobile-first), deck/card management UI, review session UI (flip
   card, rate recall, keyboard shortcuts). Visual style options proposed
@@ -20,7 +21,12 @@ Living project plan and status log. Read at the start of every session; update C
 - [ ] **Phase 4 — Structured lessons**: lesson/skill data model, seed starter
   English→Spanish course content, exercise UI (multiple choice, translation,
   fill-in-blank). Minimal gamification only (progress/mastery tracking, no
-  streak/XP UI in v1).
+  streak/XP UI in v1). Also planned: a dedicated conjugation-practice mode
+  (drilling verb forms across tenses/moods) plus Spanish subjunctive practice
+  specifically — both conjugation *and* when to use it — as a deliberate
+  differentiator from Duolingo, which doesn't teach subjunctive well. Real
+  design questions to resolve before building this — see the Known Issues /
+  Follow-ups note below, added 2026-08-13.
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
   Gemini default), example generation, free-text grading, auto-card-generation,
   mnemonics, adaptive weak-point targeting.
@@ -76,6 +82,44 @@ better-validated successor to SM-2. Implement from the published spec
 (`open-spaced-repetition` GitHub org) or a well-maintained Python package if
 one fits cleanly; decide concretely in Phase 2.
 
+**2026-08-12 — Phase 2 decided: use the official `fsrs` PyPI package
+(`fsrs>=6.3,<7`)** rather than hand-implementing the FSRS memory-model math.
+MIT-licensed, maintained by the `open-spaced-repetition` GitHub org itself,
+currently FSRS-6. Verified directly against the library's source (not just
+its docs) before committing to this: its `State` enum has only
+Learning/Review/Relearning — no equivalent to our own `CardState.NEW`, which
+stays a purely app-level "never reviewed" marker with no library counterpart.
+Upper-bounded below FSRS-7 deliberately: unlike this project's other
+open-ended pins, a future major version would carry different scoring-model
+semantics, not just an API change — an unpinned upgrade could silently
+reschedule every card differently.
+
+**2026-08-12 — First business-logic module: `backend/app/services/`,
+starting with `fsrs_engine.py`.** Until Phase 2 the codebase only had
+`api/`/`models`/`schemas` plus one CRUD helper — this establishes the
+service-layer pattern Phase 5's planned LLM layer will likely follow too.
+It's the only module that imports the `fsrs` package directly; routers never
+touch the library's types. `Card.step` (the library's same-day
+learning-step counter) was added to the schema so this round-trips the
+library's full card state faithfully rather than losing precision between
+requests.
+
+**2026-08-12 — `cards`' standalone `deck_id` index replaced with a composite
+`(deck_id, due_at)` index**, resolving the "no composite index yet" Known
+Issue from Phase 1. The due-card queue's actual query shape filters both
+together; the composite still serves plain `deck_id`-only lookups as a
+leading-column prefix, so keeping the old single-column index alongside it
+would only add write overhead for no query-planning benefit.
+
+**2026-08-12 — `POST /cards/{id}/review` accepts an optional client-supplied
+`reviewed_at`**, not just "now". Justified beyond test convenience (though it
+is what makes the default 1-/10-minute learning steps testable without
+real-time sleeps in CI): the FSRS scheduler itself already treats the review
+timestamp as a public parameter, and backdating a review has a real product
+shape too (logging a review done offline/on paper). Guarded against misuse
+given no auth exists yet: rejected if in the future or before the card's
+previous review.
+
 **2026-08-12 — Data model finalized (13 tables), implemented as SQLAlchemy
 2.0 models in `backend/app/models/`.** Core entities: `Language`, `Course`
 (base/target language pairing), `User`, `UserCourse` (enrollment), `Deck`,
@@ -125,6 +169,22 @@ asyncio combination.
 
 **As of 2026-08-12:**
 
+- Done: **Phase 2 backend is complete and verified end-to-end.** FSRS
+  scheduling via the official `fsrs` package (`app/services/fsrs_engine.py`),
+  `POST /api/cards/{id}/review` (runs one FSRS review, updates the card,
+  writes a `ReviewLog` row, returns both), `GET /api/cards/due` (due-card
+  queue: overdue cards ordered most-overdue-first, then a capped batch of
+  NEW cards). New migration adds `cards.step` and the composite
+  `(deck_id, due_at)` index. 33/33 tests pass (9 new pure unit tests against
+  the service layer with no DB, 14 new integration tests through the live
+  API, plus all of Phase 1's suite still green) against a live Postgres
+  instance; ruff clean; manually smoke-tested through the running API too
+  (create card → review it → confirm it's correctly excluded from the due
+  queue until actually due). One pre-existing Phase 1 test
+  (`test_create_and_get_language`) was fixed in passing — it hardcoded
+  `"en"`, which collided with leftover data from earlier manual Swagger UI
+  testing sitting in the dev DB; not a Phase 2 regression, just surfaced by
+  it.
 - Done: Phase 0 fully wrapped (LICENSE personalized, repo committed). Data
   model proposal approved and implemented — **Phase 1 backend is complete
   and verified end-to-end**: Docker Desktop installed (WSL2 backend),
@@ -156,8 +216,8 @@ asyncio combination.
     at exactly the expected connection point, confirming the fixtures and
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
-- Blocked: nothing — the prior Docker blocker is resolved (see Decisions Log).
-- Next: proceed to Phase 2 (FSRS scheduling engine).
+- Blocked: nothing.
+- Next: proceed to Phase 3 (frontend foundation).
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
@@ -176,6 +236,66 @@ asyncio combination.
   needing to run concurrently with manual dev work against the same DB).
 - No CORS middleware on the backend yet — deferred until Phase 3 actually
   stands up the Next.js frontend and its dev-server origin/port are known.
-- `Card.due_at` has an index (due-card queries will filter on it), but no
-  composite index yet — revisit once Phase 2 defines the actual due-card
-  query shape (likely `deck_id` + `due_at` together).
+- The dev Postgres volume (`pgdata`) accumulates manual-testing debris across
+  sessions (e.g. rows created via the `/docs` Swagger UI) since it's never
+  wiped — caused one pre-existing test to fail this session (see the
+  2026-08-12 Current Status entry). Worth a `docker compose down -v` some
+  session if this recurs, or giving manual-testing data an obviously-fake
+  naming convention.
+- The due-card queue's NEW-card query (`deck_id + state = 'new' ORDER BY
+  created_at`) has no dedicated index beyond the composite's leading
+  `deck_id` column — fine at portfolio scale, revisit with a
+  `(deck_id, state, created_at)` index if it ever matters.
+- FSRS scheduling uses the library's default weights/parameters (not tuned
+  to any real user's review history) — `fsrs-optimizer` exists for that but
+  needs substantial review history per user to be worthwhile; revisit well
+  after there's real usage data, not before.
+
+- **Conjugation practice + Spanish subjunctive (requested 2026-08-13, planned
+  for Phase 4)** — a dedicated mode for drilling verb conjugation across
+  tenses/moods, plus Spanish subjunctive specifically: both conjugation and
+  *when to use it*, called out as a deliberate Duolingo gap and something the
+  user wants as a genuinely Spanish-specific section, not a generic feature
+  Spanish happens to populate. Corrected framing (2026-08-13): an earlier
+  draft of this note leaned toward treating it as purely generic "mood/tense
+  drilling driven by data," to stay safely inside the language-agnostic
+  principle — user pushed back. The principle isn't "every language gets
+  identical features"; it's "language-specific depth is fine and expected,
+  but it must be pluggable/config-driven per language, never a hardcoded
+  `if language == "spanish"` branch scattered through generic code." User's
+  own second example of the same pattern: a hypothetical future Mandarin
+  addition would need its own section on reading characters — "fundamentally
+  different than a latin or germanic language" — which is exactly the same
+  shape of problem (a real per-language specialty section, architected so it
+  doesn't require rewriting the rest of the app). **Before this gets
+  designed or built, ask the user detailed clarifying questions about what
+  they actually want** — they explicitly said they don't want a generic
+  Duolingo clone and want to be asked, not have a generic version assumed.
+  Known open questions so far, to bring into that conversation rather than
+  resolve unilaterally:
+  - How much of a language's mood/tense/specialty-section structure lives in
+    `Language.grammar_config` (already built for per-language grammar rules)
+    vs. needs a dedicated table/registry for "specialty modules" a language
+    can declare (e.g. Spanish declares a subjunctive-mastery module, a future
+    Mandarin config declares a character-reading module).
+  - How conjugated forms get produced: rule-based generation (regular-verb
+    endings in config + an irregular-verb override table) vs. fully
+    pre-stored per-verb conjugation data.
+  - Whether this needs a new `ExerciseType.CONJUGATION` (typed-answer
+    production, matching this project's stated preference for retrieval over
+    multiple-choice) vs. reusing `FILL_IN_BLANK`.
+  - Subjunctive *usage* practice (recognizing trigger phrases/clauses that
+    require it) reuses existing exercise types with curated content — the
+    differentiation from Duolingo there is content curation, not new
+    mechanics — but confirm this framing still fits whatever fuller vision
+    the user has once asked.
+  - Whether individual conjugated forms should also become spaced-repetition
+    items (Phase 2's FSRS engine), not just Duolingo-style lesson exercises.
+
+- **Native-language vocabulary builder (requested 2026-08-13, not yet
+  scheduled)** — a separate, lower-priority idea: an Anki-like tool for
+  building vocabulary in the user's *native* language (e.g. advanced/"big"
+  English words), not L2 acquisition. User suggested this as possibly its
+  own distinct section of the site, "maybe at the end." Not yet added as a
+  numbered phase — ask the user whether this becomes its own Phase 9+ or
+  stays a loose idea when it's actually time to consider it.

@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.models.enums import CardDirection, CardState
+from app.models.enums import CardDirection, CardState, ReviewRating
+from app.schemas.review_log import ReviewLogRead
 
 
 class CardBase(BaseModel):
@@ -26,7 +27,7 @@ class CardUpdate(BaseModel):
 
 class CardRead(CardBase):
     """FSRS scheduling fields are read-only here — they're written by the
-    review-submission endpoint (Phase 2), not this basic CRUD surface.
+    review-submission endpoint, not this basic CRUD surface.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -34,9 +35,45 @@ class CardRead(CardBase):
     id: uuid.UUID
     created_at: datetime
     state: CardState
+    step: int | None
     stability: float | None
     difficulty: float | None
     due_at: datetime | None
     reps: int
     lapses: int
     last_reviewed_at: datetime | None
+
+
+class CardReviewSubmit(BaseModel):
+    """Request body for POST /cards/{card_id}/review.
+
+    `reviewed_at` is normally omitted — the server uses the current time.
+    It's exposed deliberately, not just for tests: the FSRS scheduler
+    itself already treats the review timestamp as a public parameter, and
+    letting a client backdate a review has a real product shape too
+    (logging a review done offline / on paper). The router enforces that
+    it isn't in the future and doesn't precede the card's last review.
+    """
+
+    rating: ReviewRating
+    reviewed_at: datetime | None = None
+
+    @field_validator("reviewed_at")
+    @classmethod
+    def _reviewed_at_must_be_tz_aware(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return None
+        if v.tzinfo is None:
+            raise ValueError("reviewed_at must be timezone-aware")
+        return v.astimezone(UTC)
+
+
+class CardReviewResponse(BaseModel):
+    """Bundles the updated card with the review-log row it produced, so a
+    client showing "next review in N days" alongside a confirmation of
+    what was logged doesn't need a second round trip for data that's
+    already in memory after the same commit.
+    """
+
+    card: CardRead
+    review_log: ReviewLogRead
