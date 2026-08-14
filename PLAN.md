@@ -37,9 +37,9 @@ Living project plan and status log. Read at the start of every session; update C
   complete and verified end-to-end in a real browser against the live
   API.
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
-  Gemini default), example generation, free-text grading — done so far.
-  Revised remaining slice order (2026-08-14, see Decisions Log): journal
-  correction + auto vocab extraction, a known-vocabulary system
+  Gemini default), example generation, free-text grading, journal
+  correction + auto vocab extraction — done so far. Revised remaining
+  slice order (2026-08-14, see Decisions Log): a known-vocabulary system
   (prerequisite for what follows), reading passage generation from known
   vocab, paste-in content with unknown-word flagging, coverage-gap
   analysis, adaptive weak-point targeting (last — needs real attempt data
@@ -1166,10 +1166,112 @@ slice to have anything meaningful to target. Chinese handwriting/stroke-order
 practice deferred to sit alongside Phase 7 (Whisper) as a stretch goal,
 not core Phase 5 scope.
 
+**2026-08-14 — Journal correction + auto vocab extraction (Phase 5,
+slice 3), complete and verified end-to-end.** Next slice per the
+revised order above — builds directly on `app/services/free_text_grading.py`'s
+`LLMProvider` → structured-result shape, no dependency on the
+known-vocabulary system from the same decision. User writes freely in
+the target language; gets a full corrected rewrite, one overall note,
+and an itemized list of specific fixes (`{original, corrected,
+explanation}`); any vocabulary used *correctly* that looks
+new/intermediate-worthy is suggested for one-click addition to a deck.
+Confirmed via clarifying questions before building: entries are
+**persisted** (new `JournalEntry` table — the correction result is a
+one-time snapshot of what was submitted, stored directly rather than
+re-derived, unlike `LessonExercise.prompt`); corrections are
+**itemized**, not just a single rewritten paragraph; new vocab is
+**suggested, one-click accept per word** (reuses the existing `POST
+/cards/quick-add` directly — no new backend surface for that step),
+never auto-inserted; **misused vocab stays feedback-only**, no deck
+action — a conjugation slip on a known word isn't a new card, the
+itemized correction already teaches the fix (enforced by the LLM
+prompt: `vocabulary_suggestions` explicitly excludes anything flagged
+in `corrections`). New `app/services/journal_correction.py` (mirrors
+`sentence_generation.py`/`free_text_grading.py`'s pure,
+DB-free-service shape), `model_tier="reasoning"` (same reasoning as
+free-text grading — judging a full paragraph and producing itemized
+diffs needs it more than a single-sentence check did). Frontend:
+`JournalEntryCard`/`VocabSuggestionRow` built presentational/
+callback-driven (`onAddToDeck` prop, not an internal `useQuickAddCard`
+call) specifically so they're unit-testable the same way
+`ExerciseCard.tsx` is, with the real hook wired up one level higher in
+`/journal/page.tsx` — the page itself follows this project's established
+split of leaving hook-wired page components to live-browser
+verification rather than unit tests.
+
+Verified live against the real Gemini API: submitted a Spanish entry
+with three deliberate tense mistakes plus a subtler word-choice error
+("cocinar" vs "hacer"/"hornear" for baking) — all four caught accurately
+with correct explanations, and the corrected rewrite was fully natural.
+`vocabulary_suggestions` correctly included the two correctly-used new
+words ("la tarta," "el mercado") and correctly excluded "cocinar" (the
+misused one), confirming the exclusion instruction works in practice,
+not just in the prompt text. Accepted a suggestion through the real
+browser UI — confirmed a real `VocabularyItem` + `Card` were created
+with `source: "Journal entry"` and the right `example_sentence`, and
+the button correctly flipped to a disabled "Added" state. 105 backend
+tests (6 new) and 41 frontend tests (5 new) pass; `ruff`/`tsc`/`eslint`
+all clean. One test-only wrinkle worth remembering: Postgres's
+`now()`/`CURRENT_TIMESTAMP` is transaction-start-time-stable, and this
+project's test fixtures wrap each test in one transaction (see
+conftest.py) — two rows inserted via back-to-back requests in the same
+test can get identical `created_at` values, making `ORDER BY
+created_at DESC` untestable via HTTP alone. Not a production bug
+(separate real requests get separate transactions there); worked
+around by inserting test rows directly through the DB session with
+explicit, distinct timestamps rather than through the API when a test
+specifically needs to assert ordering.
+
+**Same-day follow-up: real duplicate-vocab bug found by the user, fixed.**
+Using the shipped journal feature, the user found "la tarta" listed
+twice on `/vocabulary` after accepting the same suggestion on two
+separate visits. Root cause: the "Added" state on a vocab suggestion was
+local React state only, resetting to "offered" on every page
+reload/revisit; `POST /cards/quick-add` had no duplicate-checking at
+all, so clicking an already-accepted suggestion again created a second,
+fully duplicate `VocabularyItem` + `Card`. User's fix direction: dedup
+on the pair (target_text, base_text), not target_text alone, so
+distinct senses of a homonym (e.g. Dutch "bank" → bank/couch/bench)
+still get their own entry.
+
+Fixed in two layers. **Backend**: `quick_add_card` (`app/api/routes/cards.py`)
+is now idempotent, accent/case-insensitive, on (course, target_text,
+base_text) — reuses an existing `VocabularyItem` and just adds a card if
+this deck happens to be missing one for it, instead of creating a
+duplicate; a different `base_text` for the same `target_text` still
+creates a separate note. The accent/case-insensitive comparison
+(`exercise_grading.py`'s private `_normalize`, originally built for
+answer grading) got promoted to a shared `app/services/text_normalize.py`
+once quick-add became a second real caller — `exercise_grading.py` now
+imports it too, no behavior change there. **Frontend**: `JournalEntryCard`/
+`VocabSuggestionRow` no longer track "added" as local-only state at
+all — `added` is now derived every render from whether a matching item
+(same accent/case-insensitive normalization) already exists in the
+course's real vocabulary list (`useVocabularyItems`, already fetched on
+`/vocabulary`), which the "add" mutation's existing cache invalidation
+naturally keeps fresh. This closes the root cause, not just the
+symptom: the button can no longer lie about whether a word was already
+added, regardless of reloads or revisits.
+
+Verified: 108 backend tests (3 new, covering idempotent reuse, the
+homonym case staying separate, and reuse-across-decks) and 45 frontend
+tests (4 new, covering the render-as-already-added case, accent/case-
+insensitive matching, the homonym case NOT being flagged as a
+duplicate, and the reactive re-render-as-Added-after-add path) pass;
+`ruff`/`tsc`/`eslint` all clean. Cleaned up the one duplicate "la tarta"
+row that had already been created in the dev DB. Confirmed live in the
+browser: revisiting `/journal` now shows "Added" (disabled) immediately
+for a previously-accepted suggestion, no click required.
+
 ## Current Status
 
 **As of 2026-08-14:**
 
+- Done: **Journal correction + auto vocab extraction (Phase 5, slice 3),
+  complete and verified end-to-end** (itemized LLM corrections, one-click
+  vocab suggestions flowing into a real deck via the existing quick-add
+  endpoint) — see the decision log entry just above for the full
+  breakdown.
 - Done: **Free-text grading (Phase 5, slice 2), complete and verified
   end-to-end** (LLM-graded FREE_TEXT exercises, both translation-style
   and open-ended, real feedback text surfaced in the UI) — see the
@@ -1295,11 +1397,10 @@ not core Phase 5 scope.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: journal correction + auto vocab extraction (the next Phase 5
-  slice per the 2026-08-14 revised order — see the decision log entry
-  and the Phase checklist above), checkpointing with the user first per
-  this project's per-slice cadence, same as TTS and free-text grading
-  were.
+- Next: the known-vocabulary system (separate table, adaptive placement
+  check, known-words page — see the 2026-08-14 "Vocabulary → Reading"
+  decision entry), the next Phase 5 slice per the revised order.
+  Checkpoint with the user first per this project's per-slice cadence.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups

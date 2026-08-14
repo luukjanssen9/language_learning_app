@@ -32,4 +32,7 @@ export const queryKeys = {
   // its own leaf, keyed off the vocabulary item rather than the course.
   vocabularyExamples: (vocabularyItemId: string) =>
     ["vocabulary-items", vocabularyItemId, "examples"] as const,
+
+  journalEntries: (userId: string, courseId: string) =>
+    ["journal-entries", userId, courseId] as const,
 };

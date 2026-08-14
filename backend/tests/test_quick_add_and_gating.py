@@ -192,6 +192,69 @@ async def test_daily_new_card_cap_limits_new_cards_across_requests(client: Async
     assert new_cards == []
 
 
+async def test_quick_add_is_idempotent_on_matching_target_and_base_text(client: AsyncClient):
+    deck = await _make_deck(client)
+
+    first = await _quick_add(client, deck["id"])
+    # Different casing/accents on both fields -- still the same word.
+    second = await _quick_add(
+        client, deck["id"], target_text="你好", base_text="HELLO"
+    )
+
+    assert first["vocabulary_item"]["id"] == second["vocabulary_item"]["id"]
+    assert first["cards"][0]["id"] == second["cards"][0]["id"]
+
+    list_resp = await client.get("/api/vocabulary-items", params={"course_id": deck["course_id"]})
+    assert len(list_resp.json()) == 1
+
+
+async def test_quick_add_keeps_distinct_senses_of_a_homonym_separate(client: AsyncClient):
+    # Same target_text, genuinely different meanings -- e.g. Dutch "bank"
+    # -> bank/couch/bench. Differing on base_text must NOT be merged.
+    deck = await _make_deck(client)
+
+    bank_the_institution = await _quick_add(
+        client, deck["id"], target_text="bank", base_text="the (financial) bank"
+    )
+    bank_the_couch = await _quick_add(client, deck["id"], target_text="bank", base_text="couch")
+
+    assert (
+        bank_the_institution["vocabulary_item"]["id"] != bank_the_couch["vocabulary_item"]["id"]
+    )
+
+    list_resp = await client.get("/api/vocabulary-items", params={"course_id": deck["course_id"]})
+    assert len(list_resp.json()) == 2
+
+
+async def test_quick_add_reuses_note_but_adds_missing_card_in_a_different_deck(
+    client: AsyncClient,
+):
+    deck = await _make_deck(client)
+    first = await _quick_add(client, deck["id"])
+
+    # A second deck in the same course -- own user, since Deck.user_id is
+    # required and this test isn't exercising multi-deck-per-user sharing.
+    course_id = deck["course_id"]
+    user_resp = await client.post(
+        "/api/users", json={"email": "second-deck@example.com", "display_name": "Second Deck"}
+    )
+    user_id = user_resp.json()["id"]
+    second_deck = (
+        await client.post(
+            "/api/decks",
+            json={"user_id": user_id, "course_id": course_id, "name": "Second deck"},
+        )
+    ).json()
+
+    second = await _quick_add(client, second_deck["id"])
+
+    # Same note reused across decks, but each deck gets its own card(s)
+    # for it.
+    assert first["vocabulary_item"]["id"] == second["vocabulary_item"]["id"]
+    assert first["cards"][0]["id"] != second["cards"][0]["id"]
+    assert second["cards"][0]["deck_id"] == second_deck["id"]
+
+
 async def test_daily_new_card_cap_does_not_count_yesterdays_reviews(client: AsyncClient):
     deck = await _make_deck(client)
     resp = await client.patch(f"/api/decks/{deck['id']}", json={"daily_new_card_cap": 1})

@@ -6,6 +6,7 @@ from app.models.base import Base
 from app.models.card import Card
 from app.models.course import Course
 from app.models.deck import Deck
+from app.models.journal_entry import JournalEntry
 from app.models.language import Language
 from app.models.lesson_exercise import LessonExercise, LessonExerciseVocabulary
 from app.models.review_log import ReviewLog
@@ -23,6 +24,7 @@ __all__ = [
     "Card",
     "Course",
     "Deck",
+    "JournalEntry",
     "Language",
     "LessonExercise",
     "LessonExerciseVocabulary",

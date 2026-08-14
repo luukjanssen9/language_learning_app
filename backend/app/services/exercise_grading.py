@@ -5,27 +5,10 @@ also calls the conjugation service against the target language's
 module, same convention as fsrs_engine.py/conjugation.py).
 """
 
-import unicodedata
-
 from app.models.enums import ExerciseType
 from app.models.lesson_exercise import LessonExercise
 from app.services.conjugation import ConjugationError, conjugate
-
-
-def _strip_accents(text: str) -> str:
-    # NFKD decomposes an accented character into base + combining mark
-    # (e.g. "á" -> "a" + U+0301); dropping the marks (Unicode category
-    # "Mn") leaves the unaccented base letters.
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in decomposed if not unicodedata.combining(c))
-
-
-def _normalize(text: str) -> str:
-    # Accent-insensitive by request (2026-08-14): typing Spanish accents
-    # on a US keyboard is real friction, and this is a scoped fix for
-    # that specifically -- not general typo tolerance, which stays out
-    # of scope for Phase 5's LLM grading.
-    return _strip_accents(text.strip().lower())
+from app.services.text_normalize import normalize_for_comparison
 
 
 def get_correct_answer(exercise: LessonExercise, grammar_config: dict | None) -> str | None:
@@ -72,4 +55,4 @@ def grade_attempt(
 
     submitted_key = "answer" if exercise.exercise_type == ExerciseType.CONJUGATION else "text"
     submitted = submitted_answer.get(submitted_key, "")
-    return _normalize(submitted) == _normalize(correct_answer)
+    return normalize_for_comparison(submitted) == normalize_for_comparison(correct_answer)

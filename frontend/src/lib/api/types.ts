@@ -271,3 +271,33 @@ export interface VocabularyExample {
   base_text: string;
   created_at: string;
 }
+
+export interface Correction {
+  original: string;
+  corrected: string;
+  explanation: string;
+}
+
+export interface VocabSuggestion {
+  target_text: string;
+  base_text: string;
+  example_sentence: string;
+}
+
+export interface JournalEntry {
+  id: string;
+  user_id: string;
+  course_id: string;
+  submitted_text: string;
+  corrected_text: string;
+  overall_feedback: string;
+  corrections: Correction[];
+  vocabulary_suggestions: VocabSuggestion[];
+  created_at: string;
+}
+
+export interface JournalEntrySubmitPayload {
+  user_id: string;
+  course_id: string;
+  text: string;
+}
