@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { Deck, NewVocabularyWord, VocabularyItem } from "@/lib/api/types";
+import type { Deck, KnownVocabularyItem, NewVocabularyWord, VocabularyItem } from "@/lib/api/types";
 import { NewVocabularyRow } from "./NewVocabularyRow";
 
 const word: NewVocabularyWord = { target_text: "el mercado", base_text: "the market" };
@@ -33,6 +33,17 @@ function vocabItem(overrides: Partial<VocabularyItem>): VocabularyItem {
   };
 }
 
+function knownItem(overrides: Partial<KnownVocabularyItem>): KnownVocabularyItem {
+  return {
+    id: "known-x",
+    course_id: "course-1",
+    target_text: "placeholder",
+    source: "manual",
+    created_at: "2026-08-14T00:00:00Z",
+    ...overrides,
+  };
+}
+
 describe("NewVocabularyRow", () => {
   it("renders the word and its translation", () => {
     render(
@@ -40,7 +51,9 @@ describe("NewVocabularyRow", () => {
         word={word}
         courseDecks={[deckA]}
         existingVocab={[]}
+        existingKnownWords={[]}
         onAddToDeck={vi.fn()}
+        onMarkKnown={vi.fn()}
       />,
     );
 
@@ -56,7 +69,9 @@ describe("NewVocabularyRow", () => {
         word={word}
         courseDecks={[deckA]}
         existingVocab={[]}
+        existingKnownWords={[]}
         onAddToDeck={onAddToDeck}
+        onMarkKnown={vi.fn()}
       />,
     );
 
@@ -72,7 +87,9 @@ describe("NewVocabularyRow", () => {
         word={word}
         courseDecks={[deckA]}
         existingVocab={existingVocab}
+        existingKnownWords={[]}
         onAddToDeck={vi.fn()}
+        onMarkKnown={vi.fn()}
       />,
     );
 
@@ -86,7 +103,9 @@ describe("NewVocabularyRow", () => {
         word={word}
         courseDecks={[deckA]}
         existingVocab={existingVocab}
+        existingKnownWords={[]}
         onAddToDeck={vi.fn()}
+        onMarkKnown={vi.fn()}
       />,
     );
 
@@ -100,7 +119,9 @@ describe("NewVocabularyRow", () => {
         word={word}
         courseDecks={[deckA]}
         existingVocab={existingVocab}
+        existingKnownWords={[]}
         onAddToDeck={vi.fn()}
+        onMarkKnown={vi.fn()}
       />,
     );
 
@@ -115,7 +136,9 @@ describe("NewVocabularyRow", () => {
         word={word}
         courseDecks={[deckA]}
         existingVocab={[]}
+        existingKnownWords={[]}
         onAddToDeck={onAddToDeck}
+        onMarkKnown={vi.fn()}
       />,
     );
 
@@ -125,10 +148,80 @@ describe("NewVocabularyRow", () => {
         word={word}
         courseDecks={[deckA]}
         existingVocab={[vocabItem({ target_text: "el mercado", base_text: "the market" })]}
+        existingKnownWords={[]}
         onAddToDeck={onAddToDeck}
+        onMarkKnown={vi.fn()}
       />,
     );
 
     expect(screen.getByRole("button", { name: "Added" })).toBeInTheDocument();
+  });
+
+  it("calls onMarkKnown with the word", async () => {
+    const user = userEvent.setup();
+    const onMarkKnown = vi.fn().mockResolvedValue(undefined);
+    render(
+      <NewVocabularyRow
+        word={word}
+        courseDecks={[deckA]}
+        existingVocab={[]}
+        existingKnownWords={[]}
+        onAddToDeck={vi.fn()}
+        onMarkKnown={onMarkKnown}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Mark as known" }));
+
+    expect(onMarkKnown).toHaveBeenCalledWith(word);
+  });
+
+  it("renders as already-known once a matching item exists in the known-words list", () => {
+    const existingKnownWords = [knownItem({ target_text: "el mercado" })];
+    render(
+      <NewVocabularyRow
+        word={word}
+        courseDecks={[deckA]}
+        existingVocab={[]}
+        existingKnownWords={existingKnownWords}
+        onAddToDeck={vi.fn()}
+        onMarkKnown={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Known" })).toBeDisabled();
+  });
+
+  it("matches already-known accent- and case-insensitively", () => {
+    const existingKnownWords = [knownItem({ target_text: "EL MÉRCADO" })];
+    render(
+      <NewVocabularyRow
+        word={word}
+        courseDecks={[deckA]}
+        existingVocab={[]}
+        existingKnownWords={existingKnownWords}
+        onAddToDeck={vi.fn()}
+        onMarkKnown={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Known" })).toBeInTheDocument();
+  });
+
+  it("adding to a deck and marking known are independent", () => {
+    const existingVocab = [vocabItem({ target_text: "el mercado", base_text: "the market" })];
+    render(
+      <NewVocabularyRow
+        word={word}
+        courseDecks={[deckA]}
+        existingVocab={existingVocab}
+        existingKnownWords={[]}
+        onAddToDeck={vi.fn()}
+        onMarkKnown={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Added" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Mark as known" })).not.toBeDisabled();
   });
 });

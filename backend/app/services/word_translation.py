@@ -44,6 +44,14 @@ class BatchWordTranslation(BaseModel):
     # a structured LLM response over a list isn't guaranteed to preserve
     # positional order, so each output item must self-identify which
     # input word it translates rather than being matched up by index.
+    #
+    # Deliberately the word's *dictionary form*, not a verbatim echo of
+    # the input -- paste-in unknown-word flagging otherwise records every
+    # inflected surface form encountered ("hablo", "hablas", "hablaba", ...)
+    # as its own separate vocabulary word, when what a learner actually
+    # wants is one card for "hablar". Multiple input words legitimately
+    # collapse to the same target_text this way; the caller is expected to
+    # dedupe on it (see paste_in.py's translate_unknown_words route).
     target_text: str
     base_text: str
 
@@ -61,12 +69,15 @@ async def translate_words(
     word_list = ", ".join(f'"{w}"' for w in words)
     prompt = (
         f"Translate each of these {target_language_name} words into "
-        f"{base_language_name}, giving the single most common translation "
-        f"(a short word or phrase, not a full sentence) for each: {word_list}. "
-        "Return exactly one entry per word listed, each as {target_text, base_text} "
-        f"-- target_text is the original {target_language_name} word exactly as "
-        f"given (do not translate it into this field), base_text is its "
-        f"{base_language_name} translation."
+        f"{base_language_name}: {word_list}. For each, return one entry as "
+        "{target_text, base_text}:\n"
+        f"- target_text: the word's dictionary/citation form in "
+        f"{target_language_name} -- the infinitive if it's a conjugated verb, "
+        "the singular if it's a plural noun, the masculine singular if it's an "
+        "inflected adjective, etc. If the word given is already in its "
+        "dictionary form, return it unchanged.\n"
+        f"- base_text: the single most common {base_language_name} translation "
+        "of that dictionary form (a short word or phrase, not a full sentence)."
     )
     result = await llm.generate_structured(
         prompt, WordTranslationBatchResult, model_tier="fast"

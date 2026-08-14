@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { NewVocabularyRow } from "@/components/vocabulary/NewVocabularyRow";
 import { useDecks } from "@/hooks/useDecks";
+import { useAddKnownVocabulary, useKnownVocabularyItems } from "@/hooks/useKnownVocabulary";
 import { useAnalyzePasteIn, useTranslateUnknownWords } from "@/hooks/usePasteIn";
 import { useQuickAddCard } from "@/hooks/useQuickAddCard";
 import { useVocabularyItems } from "@/hooks/useVocabulary";
@@ -13,7 +14,9 @@ export default function PasteInPage() {
   const { selectedCourseId } = useCourseContext();
   const { data: decks = [] } = useDecks();
   const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId);
+  const { data: knownWords = [] } = useKnownVocabularyItems(selectedCourseId);
   const quickAdd = useQuickAddCard();
+  const markKnown = useAddKnownVocabulary();
   const analyze = useAnalyzePasteIn();
   const translate = useTranslateUnknownWords();
 
@@ -38,6 +41,10 @@ export default function PasteInPage() {
       base_text: word.base_text,
       source: "Paste-in",
     });
+  }
+
+  async function handleMarkKnown(word: NewVocabularyWord) {
+    await markKnown.mutateAsync({ course_id: selectedCourseId, target_text: word.target_text });
   }
 
   return (
@@ -96,7 +103,9 @@ export default function PasteInPage() {
                   word={word}
                   courseDecks={courseDecks}
                   existingVocab={vocabItems}
+                  existingKnownWords={knownWords}
                   onAddToDeck={handleAddToDeck}
+                  onMarkKnown={handleMarkKnown}
                 />
               ))}
             </ul>

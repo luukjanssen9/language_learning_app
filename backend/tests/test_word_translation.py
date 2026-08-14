@@ -102,13 +102,26 @@ async def test_translate_words_uses_fast_model_tier():
 # original word in base_text) because the prompt named the two output
 # fields without saying which language each one means -- Pydantic field
 # names alone aren't enough context for the model to infer this
-# correctly. The prompt must spell out target_text = original word,
-# base_text = translation, explicitly.
+# correctly. The prompt must spell out which language each field is in,
+# explicitly, no matter how the rest of the wording changes.
 async def test_translate_words_prompt_explains_target_text_and_base_text_explicitly():
     fake = FakeLLMProvider(WordTranslationBatchResult(translations=[]))
 
     await translate_words(fake, "Spanish", "English", ["hola"])
 
     assert fake.last_prompt is not None
-    assert "target_text is the original Spanish word" in fake.last_prompt
-    assert "base_text is its English translation" in fake.last_prompt
+    assert "target_text: the word's dictionary/citation form in Spanish" in fake.last_prompt
+    assert "base_text: the single most common English translation" in fake.last_prompt
+
+
+# Regression coverage for the follow-up request (2026-08-14, live user
+# feedback): paste-in was recording every conjugated surface form
+# ("hablo", "hablas", "hablaba", ...) as its own separate vocabulary word
+# instead of the dictionary form a learner actually wants a card for.
+async def test_translate_words_prompt_asks_for_dictionary_form_not_verbatim_echo():
+    fake = FakeLLMProvider(WordTranslationBatchResult(translations=[]))
+
+    await translate_words(fake, "Spanish", "English", ["hablo"])
+
+    assert fake.last_prompt is not None
+    assert "infinitive if it's a conjugated verb" in fake.last_prompt

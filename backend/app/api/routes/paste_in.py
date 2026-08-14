@@ -67,8 +67,21 @@ async def translate_unknown_words(
     results = await translate_words(
         llm, target_language.name, base_language.name, payload.words
     )
-    return PasteInTranslateResponse(
-        translations=[
-            NewVocabularyWord(target_text=r.target_text, base_text=r.base_text) for r in results
-        ]
-    )
+
+    # translate_words returns each word's dictionary form (e.g. every
+    # conjugation of a verb resolves to its infinitive), so distinct input
+    # words can legitimately collapse to the same output -- "hablo" and
+    # "hablas" both become "hablar". Dedupe here rather than showing the
+    # same glossary row twice; add-to-deck's own quick-add idempotency
+    # would no-op a second click anyway, but there's no reason to render
+    # the duplicate row in the first place.
+    seen: set[str] = set()
+    translations: list[NewVocabularyWord] = []
+    for r in results:
+        normalized = normalize_for_comparison(r.target_text)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        translations.append(NewVocabularyWord(target_text=r.target_text, base_text=r.base_text))
+
+    return PasteInTranslateResponse(translations=translations)

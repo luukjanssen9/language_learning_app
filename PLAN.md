@@ -1542,6 +1542,49 @@ two-character segment and correctly flagged/translated it as a unit
 data. Add-to-deck confirmed correct (post-fix) in Postgres for both
 scripts, with `target_text`/`base_text` in the right language each time.
 
+**2026-08-14 — Paste-in follow-up, same day, from real usage: dictionary-form
+translations + a "Mark as known" action, both verified live.** The user
+tried the shipped feature and reported every conjugated surface form
+("susurra", "susurraron", ...) was being recorded as its own separate
+vocabulary word instead of one card for the verb.
+
+**Dictionary-form fix**: `translate_words`' prompt (`word_translation.py`)
+now explicitly asks for each word's dictionary/citation form — infinitive
+for a conjugated verb, singular for a plural noun, masculine singular for
+an inflected adjective — as `target_text`, translating *that* form rather
+than echoing the literal inflected word encountered. No new dependency: the
+same batch LLM call already being made just does more work per call.
+Multiple distinct input words legitimately collapse to the same output
+this way (e.g. "susurra" and "susurraron" both → "susurrar") — the
+`/paste-in/translate-unknown-words` route now dedupes the result list by
+normalized `target_text` before returning, so the glossary doesn't render
+the same word twice. Quick-add's own pre-existing idempotency (dedup on
+course + target_text + base_text) already makes a second add-to-deck click
+for the same lemma a safe no-op, which is what makes "record the
+infinitive if not already in the deck" work correctly for free once
+`target_text` is consistently the lemma. Regression tests added for both
+the dictionary-form instruction and the route-level dedup.
+
+**"Mark as known" action**: `NewVocabularyRow` (shared by reading-passage
+generation and paste-in) gained a second, independent action alongside
+"Add to deck" — reuses the known-vocabulary system's existing manual-add
+endpoint (`useAddKnownVocabulary`, `source: "manual"`), no new backend
+surface needed. Its "already known" state derives from the real
+known-vocabulary list the same way "Added" derives from the real
+`VocabularyItem` list (not local-only state, per the duplicate-vocab bug
+this project already fixed once) — wired into both pages that render the
+component.
+
+**Verified live**: pasted "Ella susurra un secreto. Ellos susurraron toda
+la noche." — both conjugations highlighted correctly in the text, but the
+glossary correctly showed one row, "susurrar → to whisper"; clicked "Mark
+as known" (persisted to `known_vocabulary_items` with `source: "manual"`,
+button correctly flipped to disabled "Known") and separately "+ Add to
+deck" (persisted to `vocabulary_items` as `target_text: "susurrar"`, not
+either conjugated surface form). 2 new backend tests (155 total), 4 new
+frontend tests (66 total), all existing suites still green,
+`ruff`/`tsc`/`eslint` clean.
+
 ## Current Status
 
 **As of 2026-08-14:**
@@ -1552,8 +1595,13 @@ scripts, with `target_text`/`base_text` in the right language each time.
   (no-LLM) highlighting with translations filled in a beat later, and a
   real prompt bug (translations landing in the wrong direction) found live
   and fixed with a regression test. First Phase 5 slice with zero
-  schema/migration changes. See the decision log entry just above for the
-  full breakdown.
+  schema/migration changes. Same-day follow-up from real usage: translated
+  words now resolve to their dictionary form (infinitive/singular) rather
+  than the literal conjugated/inflected surface form encountered, and
+  `NewVocabularyRow` (shared with reading-passage generation) gained an
+  independent "Mark as known" action alongside "Add to deck," reusing the
+  known-vocabulary system's existing manual-add endpoint. See the decision
+  log entries just above for the full breakdown.
 - Done: **Reading passage generation (Phase 5), complete and verified
   end-to-end across Spanish and Chinese** — new `reading_passages`/
   `reading_passage_attempts` tables, known-vocabulary blending (mastered

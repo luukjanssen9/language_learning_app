@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { NewVocabularyRow } from "@/components/vocabulary/NewVocabularyRow";
 import { useDecks } from "@/hooks/useDecks";
+import { useAddKnownVocabulary, useKnownVocabularyItems } from "@/hooks/useKnownVocabulary";
 import { useQuickAddCard } from "@/hooks/useQuickAddCard";
 import { useReadingPassages, useSubmitReadingPassageAttempt } from "@/hooks/useReadingPassages";
 import { useVocabularyItems } from "@/hooks/useVocabulary";
@@ -96,7 +97,9 @@ export default function ReadingPassagePage() {
 
   const { data: decks = [] } = useDecks();
   const { data: vocabItems = [] } = useVocabularyItems(courseId);
+  const { data: knownWords = [] } = useKnownVocabularyItems(courseId);
   const quickAdd = useQuickAddCard();
+  const markKnown = useAddKnownVocabulary();
   const submitAttempt = useSubmitReadingPassageAttempt();
 
   const [showTranslation, setShowTranslation] = useState(false);
@@ -110,6 +113,10 @@ export default function ReadingPassagePage() {
       base_text: word.base_text,
       source: "Reading passage",
     });
+  }
+
+  async function handleMarkKnown(word: NewVocabularyWord) {
+    await markKnown.mutateAsync({ course_id: courseId, target_text: word.target_text });
   }
 
   async function handleSubmitAnswer(questionIndex: number, submittedAnswer: string) {
@@ -164,7 +171,9 @@ export default function ReadingPassagePage() {
                 word={word}
                 courseDecks={courseDecks}
                 existingVocab={vocabItems}
+                existingKnownWords={knownWords}
                 onAddToDeck={handleAddToDeck}
+                onMarkKnown={handleMarkKnown}
               />
             ))}
           </ul>

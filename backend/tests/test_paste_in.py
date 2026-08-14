@@ -188,6 +188,32 @@ async def test_translate_unknown_words_via_fake_llm(client: AsyncClient):
     assert fake.call_count == 1
 
 
+async def test_translate_unknown_words_dedupes_words_that_share_a_dictionary_form(
+    client: AsyncClient,
+):
+    # "hablo" and "hablas" are different conjugations of the same verb --
+    # translate_words resolves both to the infinitive "hablar", and the
+    # route must not render that as two separate glossary rows.
+    course = await _make_course(client)
+    fake = FakeLLMProvider(
+        WordTranslationBatchResult(
+            translations=[
+                BatchWordTranslation(target_text="hablar", base_text="to speak"),
+                BatchWordTranslation(target_text="Hablar", base_text="to speak"),
+            ]
+        )
+    )
+    app.dependency_overrides[get_llm_provider] = lambda: fake
+
+    resp = await client.post(
+        "/api/paste-in/translate-unknown-words",
+        json={"course_id": course["id"], "words": ["hablo", "hablas"]},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["translations"] == [{"target_text": "hablar", "base_text": "to speak"}]
+
+
 async def test_translate_unknown_words_with_empty_list_skips_the_llm_call(client: AsyncClient):
     course = await _make_course(client)
     fake = FakeLLMProvider(WordTranslationBatchResult(translations=[]))
