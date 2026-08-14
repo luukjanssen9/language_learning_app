@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/", label: "Decks" },
   { href: "/course", label: "Course" },
   { href: "/vocabulary", label: "Vocabulary" },
+  { href: "/known-vocabulary", label: "Known words" },
   { href: "/journal", label: "Journal" },
 ];
 
@@ -15,7 +16,8 @@ export function Nav() {
   const pathname = usePathname();
   // Quick-add creates flashcard notes -- only meaningful in the Decks
   // section (dashboard + deck pages), not Course (lesson content, not
-  // Anki-style notes) or Vocabulary (its own read-only page). Found live:
+  // Anki-style notes), Vocabulary (its own read-only page), or Known
+  // words (has its own inline promote action instead). Found live:
   // showing it everywhere was confusing on pages it doesn't apply to.
   const showQuickAdd = pathname === "/" || pathname.startsWith("/decks");
 

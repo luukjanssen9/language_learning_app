@@ -25,13 +25,26 @@ card, immediately reviewable, and a production card that starts
 until `list_due_cards` (app/api/routes/cards.py) unlocks it per the
 `production_gate` config. See PLAN.md's 2026-08-14 "Anki-style vocab
 decks" decision for the full reasoning.
+
+`get_or_create_vocabulary_item_and_cards` below is a second, DB-touching
+helper (unlike `build_cards_for_note`, not a pure function) -- the shared
+core of `POST /cards/quick-add` and the known-vocabulary "promote"
+endpoint, extracted once promotion became a second real caller of the
+same resolve-or-create-note logic. See PLAN.md's 2026-08-14
+"known-vocabulary system" decision.
 """
 
 import uuid
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.card import Card
+from app.models.deck import Deck
 from app.models.enums import CardDirection, CardState
 from app.models.language import Language
+from app.models.vocabulary import VocabularyItem
+from app.services.text_normalize import normalize_for_comparison
 
 
 def build_cards_for_note(
@@ -62,3 +75,67 @@ def build_cards_for_note(
         state=CardState.SUSPENDED,
     )
     return [recognition, production]
+
+
+async def get_or_create_vocabulary_item_and_cards(
+    db: AsyncSession,
+    deck: Deck,
+    target_language: Language,
+    target_text: str,
+    base_text: str,
+    part_of_speech: str | None = None,
+    source: str | None = None,
+    example_sentence: str | None = None,
+    example_sentence_translation: str | None = None,
+    tags: list[str] | None = None,
+    attributes: dict | None = None,
+) -> tuple[VocabularyItem, list[Card]]:
+    """Finds an existing `VocabularyItem` in `deck`'s course matching
+    `(target_text, base_text)` (accent/case-insensitive, same identity
+    `quick_add_card` originally used), or creates one, then ensures `deck`
+    has `Card`(s) for it via `build_cards_for_note`. Distinct senses of a
+    homonym (different `base_text`) still get their own note. Does not
+    commit -- the caller commits as part of its own transaction.
+    """
+    normalized_target = normalize_for_comparison(target_text)
+    normalized_base = normalize_for_comparison(base_text)
+    existing_items = await db.execute(
+        select(VocabularyItem).where(VocabularyItem.course_id == deck.course_id)
+    )
+    vocabulary_item = next(
+        (
+            item
+            for item in existing_items.scalars()
+            if normalize_for_comparison(item.target_text) == normalized_target
+            and normalize_for_comparison(item.base_text) == normalized_base
+        ),
+        None,
+    )
+
+    if vocabulary_item is None:
+        vocabulary_item = VocabularyItem(
+            course_id=deck.course_id,
+            target_text=target_text,
+            base_text=base_text,
+            part_of_speech=part_of_speech,
+            source=source,
+            example_sentence=example_sentence,
+            example_sentence_translation=example_sentence_translation,
+            tags=tags or [],
+            attributes=attributes or {},
+        )
+        db.add(vocabulary_item)
+        await db.flush()
+        cards = build_cards_for_note(deck.id, vocabulary_item.id, target_language)
+        db.add_all(cards)
+        return vocabulary_item, cards
+
+    existing_cards = await db.execute(
+        select(Card).where(Card.deck_id == deck.id, Card.vocabulary_item_id == vocabulary_item.id)
+    )
+    cards = list(existing_cards.scalars())
+    if not cards:
+        cards = build_cards_for_note(deck.id, vocabulary_item.id, target_language)
+        db.add_all(cards)
+
+    return vocabulary_item, cards

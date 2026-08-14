@@ -27,8 +27,7 @@ from app.schemas.card import (
 from app.schemas.review_log import ReviewLogRead
 from app.schemas.vocabulary import VocabularyItemRead
 from app.services.fsrs_engine import apply_review
-from app.services.note_cards import build_cards_for_note
-from app.services.text_normalize import normalize_for_comparison
+from app.services.note_cards import get_or_create_vocabulary_item_and_cards
 
 router = APIRouter(prefix="/cards", tags=["cards"])
 
@@ -63,47 +62,19 @@ async def quick_add_card(
     course = await get_or_404(db, Course, deck.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
 
-    normalized_target = normalize_for_comparison(payload.target_text)
-    normalized_base = normalize_for_comparison(payload.base_text)
-    existing_items = await db.execute(
-        select(VocabularyItem).where(VocabularyItem.course_id == course.id)
+    vocabulary_item, cards = await get_or_create_vocabulary_item_and_cards(
+        db,
+        deck,
+        target_language,
+        target_text=payload.target_text,
+        base_text=payload.base_text,
+        part_of_speech=payload.part_of_speech,
+        source=payload.source,
+        example_sentence=payload.example_sentence,
+        example_sentence_translation=payload.example_sentence_translation,
+        tags=payload.tags,
+        attributes=payload.attributes,
     )
-    vocabulary_item = next(
-        (
-            item
-            for item in existing_items.scalars()
-            if normalize_for_comparison(item.target_text) == normalized_target
-            and normalize_for_comparison(item.base_text) == normalized_base
-        ),
-        None,
-    )
-
-    if vocabulary_item is None:
-        vocabulary_item = VocabularyItem(
-            course_id=course.id,
-            target_text=payload.target_text,
-            base_text=payload.base_text,
-            part_of_speech=payload.part_of_speech,
-            source=payload.source,
-            example_sentence=payload.example_sentence,
-            example_sentence_translation=payload.example_sentence_translation,
-            tags=payload.tags,
-            attributes=payload.attributes,
-        )
-        db.add(vocabulary_item)
-        await db.flush()
-        cards = build_cards_for_note(deck.id, vocabulary_item.id, target_language)
-        db.add_all(cards)
-    else:
-        existing_cards = await db.execute(
-            select(Card).where(
-                Card.deck_id == deck.id, Card.vocabulary_item_id == vocabulary_item.id
-            )
-        )
-        cards = list(existing_cards.scalars())
-        if not cards:
-            cards = build_cards_for_note(deck.id, vocabulary_item.id, target_language)
-            db.add_all(cards)
 
     await db.commit()
     await db.refresh(vocabulary_item)

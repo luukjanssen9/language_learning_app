@@ -5,6 +5,7 @@ from app.api.routes import (
     courses,
     decks,
     journal_entries,
+    known_vocabulary,
     languages,
     lesson_exercises,
     review_logs,
@@ -25,6 +26,7 @@ api_router.include_router(decks.router)
 api_router.include_router(vocabulary.router)
 api_router.include_router(cards.router)
 api_router.include_router(journal_entries.router)
+api_router.include_router(known_vocabulary.router)
 api_router.include_router(skills.router)
 api_router.include_router(lesson_exercises.router)
 api_router.include_router(review_logs.router)

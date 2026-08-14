@@ -57,3 +57,12 @@ class ExerciseType(enum.StrEnum):
     FILL_IN_BLANK = "fill_in_blank"
     FREE_TEXT = "free_text"
     CONJUGATION = "conjugation"
+
+
+class KnownVocabularySource(enum.StrEnum):
+    PLACEMENT_CHECK = "placement_check"
+    MANUAL = "manual"
+    # A row transitions here in place once its word is promoted to a real
+    # VocabularyItem + Card, rather than being deleted -- see
+    # app/models/known_vocabulary.py's docstring.
+    PROMOTED = "promoted"

@@ -301,3 +301,31 @@ export interface JournalEntrySubmitPayload {
   course_id: string;
   text: string;
 }
+
+export type KnownVocabularySource = "placement_check" | "manual" | "promoted";
+
+export interface KnownVocabularyItem {
+  id: string;
+  course_id: string;
+  target_text: string;
+  source: KnownVocabularySource;
+  created_at: string;
+}
+
+export interface KnownVocabularyItemCreatePayload {
+  course_id: string;
+  target_text: string;
+}
+
+export interface KnownVocabularyBulkCreatePayload {
+  course_id: string;
+  target_texts: string[];
+}
+
+export interface KnownVocabularyBulkCreateResponse {
+  inserted_count: number;
+}
+
+export interface KnownVocabularyPromotePayload {
+  deck_id: string;
+}

@@ -35,4 +35,6 @@ export const queryKeys = {
 
   journalEntries: (userId: string, courseId: string) =>
     ["journal-entries", userId, courseId] as const,
+
+  knownVocabulary: (courseId: string) => ["known-vocabulary", courseId] as const,
 };

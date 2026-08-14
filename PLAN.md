@@ -38,17 +38,17 @@ Living project plan and status log. Read at the start of every session; update C
   API.
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
   Gemini default), example generation, free-text grading, journal
-  correction + auto vocab extraction — done so far. Revised remaining
-  slice order (2026-08-14, see Decisions Log): a known-vocabulary system
-  (prerequisite for what follows), reading passage generation from known
-  vocab, paste-in content with unknown-word flagging, coverage-gap
-  analysis, adaptive weak-point targeting (last — needs real attempt data
-  from the earlier slices). Generic auto-card-generation dropped as its
-  own slice (journal correction/paste-in flagging cover it with real
-  context attached); mnemonics folded into the existing example-generation
-  endpoint as an extra field rather than a separate slice. Also: the
-  Vocabulary course category (Greetings/Family) is being retired in favor
-  of a Reading category — see the same decision log entry.
+  correction + auto vocab extraction, known-vocabulary system — done so
+  far. Revised remaining slice order (2026-08-14, see Decisions Log):
+  reading passage generation from known vocab, paste-in content with
+  unknown-word flagging, coverage-gap analysis, adaptive weak-point
+  targeting (last — needs real attempt data from the earlier slices).
+  Generic auto-card-generation dropped as its own slice (journal
+  correction/paste-in flagging cover it with real context attached);
+  mnemonics folded into the existing example-generation endpoint as an
+  extra field rather than a separate slice. Also: the Vocabulary course
+  category (Greetings/Family) is being retired in favor of a Reading
+  category — see the same decision log entry.
 - [ ] **Phase 6 — Conversational practice partner**: chat UI, roleplay
   scenarios constrained to known vocabulary, in-context correction.
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
@@ -1263,10 +1263,109 @@ row that had already been created in the dev DB. Confirmed live in the
 browser: revisiting `/journal` now shows "Added" (disabled) immediately
 for a previously-accepted suggestion, no click required.
 
+**2026-08-14 — Known-vocabulary system (Phase 5, next slice per the revised
+order), complete and verified end-to-end across all three languages.**
+Designed together first (plan mode), building on the high-level shape
+already decided earlier the same day (separate table, promotion
+semantics, opt-in placement check, known-words page — see the
+"Vocabulary → Reading, known-vocabulary system" entry above). Two things
+that entry deliberately left open got resolved this session: real
+frequency data (not a placeholder set), and Dutch in scope alongside
+Spanish/Chinese from day one.
+
+**Data sourcing**: Spanish/Dutch from hermitdave/FrequencyWords (2018
+OpenSubtitles-derived, `content/2018/<lang>/<lang>_50k.txt`, MIT code +
+CC-BY-SA-4.0 content, attributed in the bundled JSON) — top 4,000 words
+per language, filtered to letters-only tokens, rank-split into 10 even
+bands. Chinese from drkameleon/complete-hsk-vocabulary (MIT, HSK 3.0
+*exclusive* per-level lists so bands represent genuinely new words, not
+cumulative) — 7 bands, one per official level, with 7-9 combined into a
+single "advanced" band rather than an invented 3-way split (HSK 3.0
+itself doesn't split them further, and inventing tier cutoffs was
+exactly the failure mode this data source was chosen to avoid — see the
+Known Issues entry it resolves). Bands committed as static JSON
+(`frontend/src/data/frequencyBands/{es,nl,zh}.json`) with a plain
+lookup-by-`Language.code` loader — no per-language branching, no backend
+involvement (the check itself needs no server/LLM logic, matching the
+original design).
+
+**Schema**: new `known_vocabulary_items` table (`course_id`,
+`target_text` stored lowercased, `source` enum
+`placement_check`/`manual`/`promoted`, `UniqueConstraint(course_id,
+target_text)`). Deliberately a real DB constraint plus
+`INSERT ... ON CONFLICT DO NOTHING`, not `VocabularyItem`'s app-level
+accent/case-insensitive Python scan — justified by volume (a single
+placement-check bulk-save can insert thousands of rows from a fixed,
+already-lowercased dataset) rather than low-volume typed input.
+`promoted` is a status a row transitions to in place, not a deletion or
+a separate table — keeps a single persisted signal the known-words page
+filters on directly without cross-referencing the full `VocabularyItem`
+list every render.
+
+**Backend**: new `app/services/word_translation.py` (pure, `LLMProvider`
+→ single-word translation, `model_tier="fast"`) — the promote flow's own
+LLM call, since known-vocabulary rows never store a translation. Real
+DRY refactor: extracted `quick_add_card`'s inline "resolve-or-create
+`VocabularyItem` + `Card`s" logic into
+`app/services/note_cards.py::get_or_create_vocabulary_item_and_cards`,
+so the new promote endpoint reuses the exact same dedup identity
+(accent/case-insensitive on `target_text` + `base_text`) instead of
+duplicating it — verified behavior-preserving by re-running the full
+existing suite unchanged immediately after the refactor, before writing
+any new code. New `app/api/routes/known_vocabulary.py`
+(`GET`/`POST`/`POST /bulk`/`DELETE`/`POST /{id}/promote`), same
+flat-router-plus-query-param convention as `/vocabulary-items` and
+`/cards`. 9 new backend tests (117 total), `ruff` clean.
+
+**Frontend**: `lib/placementCheck.ts` — a pure binary-search state
+machine over the ordered bands (3 deterministically-sampled words per
+band tested, not random, so the check is reproducible; a 30-item budget
+as a safety cap, not a target — real runs converged in 9-13 items across
+all three languages). New top-level `/known-vocabulary` section
+(list/search/manual-add/promote/delete + `/placement-check` sub-route
+mirroring the lesson session's one-item-at-a-time shape), `CourseSwitcher`
+gained a `/known-vocabulary` branch (the same bug class already fixed
+once for `/vocabulary`), `Nav` gained a link with quick-add kept hidden
+here. 6 new `placementCheck.test.ts` cases (pure) + 5 new
+`KnownVocabularyRow.test.tsx` cases (presentational, same
+props-in/callbacks-mocked convention as `VocabSuggestionRow`) — 56
+frontend tests total, `tsc`/`eslint` clean.
+
+**Verified live end-to-end against the real Gemini API, all three
+languages, not just fakes**: manual-add/search/delete on `/known-vocabulary`;
+promoting "hola" (already a seeded `VocabularyItem`) correctly reused the
+existing note rather than duplicating it — a real, unplanned exercise of
+the dedup path against genuine pre-existing data; promoting "biblioteca"
+(genuinely new) produced a real Gemini translation ("library", noun) and
+a fresh `VocabularyItem` + `Card`, with the known-vocabulary row's badge
+flipping to "Promoted" and its promote control disappearing. Took the
+full placement check for Spanish (2,400-word estimate = 6 bands × 400,
+converged in 12 questions), Chinese (2,209 = HSK 1+2+3 exactly, 9
+questions), and Dutch (800 = 2 bands × 400, 9 questions) — every band
+count confirmed directly against Postgres. Retaking the Spanish check
+with an identical answer sequence reproduced the identical 2,400-word
+estimate (confirming deterministic sampling) and inserted zero
+additional rows (confirming `ON CONFLICT DO NOTHING` idempotency).
+Confirmed switching courses on `/known-vocabulary` stays on
+`/known-vocabulary` for all four courses in the dev DB, including a
+leftover `Language`-code-collision test course from earlier Phase 3
+verification (`Spanish P2`) — correctly showed no placement-check entry
+point at all, since its language code doesn't match the bundled data's
+lookup key, the intended graceful-degradation behavior rather than a bug.
+
 ## Current Status
 
 **As of 2026-08-14:**
 
+- Done: **Known-vocabulary system (Phase 5), complete and verified
+  end-to-end across Spanish, Chinese, and Dutch** — new `known_vocabulary_items`
+  table, real frequency-band data (hermitdave/FrequencyWords for
+  Spanish/Dutch, HSK 3.0 official levels for Chinese), an adaptive
+  binary-search placement check, a known-words page with manual
+  add/search/delete, and a one-way "promote" action that reuses the
+  quick-add note-resolution logic (extracted into a shared service) plus
+  a new single-word LLM translation call — see the decision log entry
+  just above for the full breakdown.
 - Done: **Journal correction + auto vocab extraction (Phase 5, slice 3),
   complete and verified end-to-end** (itemized LLM corrections, one-click
   vocab suggestions flowing into a real deck via the existing quick-add
@@ -1397,9 +1496,11 @@ for a previously-accepted suggestion, no click required.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: the known-vocabulary system (separate table, adaptive placement
-  check, known-words page — see the 2026-08-14 "Vocabulary → Reading"
-  decision entry), the next Phase 5 slice per the revised order.
+- Next: reading passage generation from known vocabulary, the next Phase 5
+  slice per the revised order (see the 2026-08-14 "Vocabulary → Reading"
+  decision entry) — needs its own content-model design pass first (the
+  `VocabularyExample`/`VocabularyAudio` get-or-generate-and-cache pattern
+  is the likely shape, not a reuse of `Skill`/`LessonExercise`).
   Checkpoint with the user first per this project's per-slice cadence.
 - Open questions: none blocking.
 
@@ -1413,10 +1514,6 @@ for a previously-accepted suggestion, no click required.
 - Coverage-gap analysis shares the known-vocabulary system's prerequisite
   (frequency-band data + known-words data) — don't schedule it before that
   work exists, even though it's cheap once it does.
-- Frequency-list source for the known-vocabulary placement check isn't
-  locked in — likely hermitdave/FrequencyWords for Spanish, HSK level
-  lists for Chinese (see the same decision log entry) — verify licensing
-  before actually pulling either in.
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
   as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
   for the conversational practice partner (Phase 6), which will burn requests

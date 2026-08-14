@@ -23,11 +23,16 @@ export function CourseSwitcher() {
     // A category (or tense) picked under the previous course doesn't mean
     // anything under the new one -- land back on the current section's own
     // root rather than always "/course". This switcher is shared by every
-    // section that wraps itself in CourseProvider (course, vocabulary, ...),
-    // so "current section" is read from the URL rather than hardcoded --
-    // found live: hardcoding "/course" here bounced the vocabulary page
-    // back to /course on every switch, which was never the intent.
-    const section = pathname.startsWith("/vocabulary") ? "/vocabulary" : "/course";
+    // section that wraps itself in CourseProvider (course, vocabulary,
+    // known-vocabulary, ...), so "current section" is read from the URL
+    // rather than hardcoded -- found live: hardcoding "/course" here
+    // bounced the vocabulary page back to /course on every switch, which
+    // was never the intent.
+    const section = pathname.startsWith("/vocabulary")
+      ? "/vocabulary"
+      : pathname.startsWith("/known-vocabulary")
+        ? "/known-vocabulary"
+        : "/course";
     router.push(section);
   }
 
