@@ -39,10 +39,10 @@ Living project plan and status log. Read at the start of every session; update C
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
   Gemini default), example generation, free-text grading, journal
   correction + auto vocab extraction, known-vocabulary system, reading
-  passage generation — done so far. Revised remaining slice order
-  (2026-08-14, see Decisions Log): paste-in content with unknown-word
-  flagging, coverage-gap analysis, adaptive weak-point targeting (last —
-  needs real attempt data from the earlier slices). Generic
+  passage generation, paste-in content with unknown-word flagging — done
+  so far. Revised remaining slice order (2026-08-14, see Decisions Log):
+  coverage-gap analysis, adaptive weak-point targeting (last — needs real
+  attempt data from the earlier slices). Generic
   auto-card-generation dropped as its own slice (journal correction/
   paste-in flagging cover it with real context attached); mnemonics folded
   into the existing example-generation endpoint as an extra field rather
@@ -1445,10 +1445,115 @@ between failed retries; consistent with this project's already-documented,
 accepted free-tier flakiness trade-off, not something this slice needs to
 handle specially.
 
+**2026-08-14 — Paste-in content with unknown-word flagging (Phase 5),
+complete and verified end-to-end across Spanish and Chinese.** The mirror
+image of reading-passage generation: known-words → generated text there,
+arbitrary user text → flagged unknown words here. Designed together first
+(plan mode), same pattern as every Phase 4/5 feature. Confirmed with the
+user up front: Chinese gets real word segmentation via `jieba` (new
+backend dependency) rather than being excluded from this slice, since
+naive splitting would flag individual characters instead of words. First
+Phase 5 slice with **zero schema/migration changes** — deliberately
+stateless (no reason to persist a verbatim copy of pasted, often
+third-party text the way `JournalEntry`/`ReadingPassage` persist actually
+generated content).
+
+**Known-vocabulary lookup gained an uncapped variant.** The existing
+`get_known_words_for_passage` (in `known_vocabulary_lookup.py`) samples
+estimated words down to a 300-word prompt budget — wrong for flagging,
+where under-counting known words would falsely flag things the user
+actually knows. Refactored to share the two underlying queries (mastered
+`Card`s in `REVIEW`; all `KnownVocabularyItem` rows) between that function
+and a new `get_full_known_word_set` (uncapped, normalized via the same
+`normalize_for_comparison` quick-add already uses, for exact membership
+testing).
+
+**Tokenizer — `app/services/paste_in_tokenizer.py`**: `tokenize(text,
+grammar_config)` returns `(segment_text, is_word)` pairs that reconstruct
+the input exactly when joined, so the frontend renders highlights without
+re-deriving anything. Branches on `grammar_config.get("tokenization",
+"whitespace")` — a config value, not a language-identity check, matching
+`script_direction`/`vocab_deck`'s existing convention. Whitespace mode
+(Spanish/Dutch default) is `re.split` on Unicode word-character runs
+(accented letters work for free, purely numeric tokens excluded from
+word-hood by construction). CJK mode (`Chinese` grammar_config now sets
+`"tokenization": "cjk"`) uses `jieba.tokenize`, which — verified directly
+against real Chinese text before committing to it — segments the *entire*
+input including punctuation as its own tokens, so classifying a segment as
+a word is just "does it contain a CJK ideograph."
+
+**Batch translation extends `word_translation.py`** rather than adding a
+parallel file — `translate_words(llm, ..., words: list[str])` — one LLM
+call for however many unknown words a pasted article has, instead of one
+call per word. New `BatchWordTranslation` carries its own `target_text`
+per item (unlike the single-word `WordTranslation`) since a structured
+list response isn't guaranteed to preserve positional order.
+
+**A real bug, found live, not by review**: the first end-to-end test
+showed every translation backwards — `target_text` held the English
+translation, `base_text` held the original Spanish word, exactly reversed
+from this project's actual convention. Root cause: the prompt named the
+output fields (`target_text`/`base_text`) without ever saying which
+language each one meant — Pydantic field names alone gave the model
+nothing to infer that from, so it guessed "target" meant "the target of
+the translation" (the output) rather than "text in the target language."
+Fixed by making the prompt spell out the mapping explicitly (`target_text
+is the original {target_language_name} word exactly as given ...
+base_text is its {base_language_name} translation`); added a regression
+test asserting that exact instruction is present in the prompt, and
+manually deleted the one bad row the live test had already written before
+re-verifying. Worth remembering as a general pattern: structured-output
+field *names* are not self-documenting to the model just because they're
+self-documenting to the humans reading this codebase's other services —
+anywhere a field's meaning depends on which of two languages/directions is
+which, the prompt needs to say so outright, not rely on the schema alone.
+
+**A second, smaller gap found and fixed alongside it**: `CourseSwitcher`
+already had two prior "a new top-level section forgot to add itself to
+`handleChange`" incidents (`/vocabulary`, then `/known-vocabulary`) — while
+adding `/paste-in`'s entry, found that `/journal` had the exact same gap
+and had simply never been reported. Refactored the growing ternary chain
+into a flat `SWITCHER_SECTIONS` list (`/vocabulary`, `/known-vocabulary`,
+`/journal`, `/paste-in`) with a `.find()`, both fixing the latent
+`/journal` bug and making the next section's entry a one-line addition
+instead of another nested ternary branch.
+
+**Shared component/schema promoted, not duplicated**: `NewVocabularyRow`
+moved from `components/readingPassage/` to `components/vocabulary/` (zero
+reading-passage-specific logic, and paste-in needed the exact same
+word+translation+add-to-deck shape); `NewVocabularyWord` moved from
+`schemas/reading_passage.py` to `schemas/vocabulary.py` for the same
+reason on the backend.
+
+**Verified**: 19 new backend tests (153 total: 7 tokenizer unit tests
+against real `jieba` calls rather than a fake, since it's deterministic
+and fast; 3 uncapped-lookup cases; 4 batch-translation cases including the
+field-semantics regression test; 5 route integration tests), `ruff`
+clean. 62 frontend tests unchanged in count (component
+relocation, not new coverage), `tsc`/`eslint` clean. **Live, against the
+real Gemini API, both Spanish and Chinese**: pasted Spanish text mixing
+common words already in the 2,400-word known set (correctly left
+unhighlighted: "amiga," "cómo," "estás") with three genuinely obscure ones
+("bibliotecario," "esdrújula," "tranquilamente" — correctly highlighted
+and translated); pasted Chinese text where `jieba` merged "很漂亮" into one
+two-character segment and correctly flagged/translated it as a unit
+("very beautiful"), not per-character, while correctly recognizing
+"图书馆" (library) as already-known from the HSK-derived known-vocabulary
+data. Add-to-deck confirmed correct (post-fix) in Postgres for both
+scripts, with `target_text`/`base_text` in the right language each time.
+
 ## Current Status
 
 **As of 2026-08-14:**
 
+- Done: **Paste-in content with unknown-word flagging (Phase 5), complete
+  and verified end-to-end across Spanish and Chinese** — real Chinese word
+  segmentation via `jieba`, an uncapped known-vocabulary lookup, instant
+  (no-LLM) highlighting with translations filled in a beat later, and a
+  real prompt bug (translations landing in the wrong direction) found live
+  and fixed with a regression test. First Phase 5 slice with zero
+  schema/migration changes. See the decision log entry just above for the
+  full breakdown.
 - Done: **Reading passage generation (Phase 5), complete and verified
   end-to-end across Spanish and Chinese** — new `reading_passages`/
   `reading_passage_attempts` tables, known-vocabulary blending (mastered
@@ -1596,13 +1701,12 @@ handle specially.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: paste-in content with unknown-word flagging, the next Phase 5 slice
-  per the revised order (see the 2026-08-14 "Vocabulary → Reading" decision
-  entry) — shares logic with reading-passage generation (known-vocabulary
-  lookup) but works the other direction: the user supplies arbitrary text,
-  the app flags which words aren't known yet, rather than the app
-  generating text from known words. Checkpoint with the user first per
-  this project's per-slice cadence.
+- Next: coverage-gap analysis vs. a CEFR/HSK-style list, the next Phase 5
+  slice per the revised order (see the 2026-08-14 "Vocabulary → Reading"
+  decision entry) — shares the known-vocabulary system's prerequisite data
+  (frequency-band data + known-words data), "cheap" in effort now that
+  both exist. Checkpoint with the user first per this project's per-slice
+  cadence.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups

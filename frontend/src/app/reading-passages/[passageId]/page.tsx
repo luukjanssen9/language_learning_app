@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { NewVocabularyRow } from "@/components/readingPassage/NewVocabularyRow";
+import { NewVocabularyRow } from "@/components/vocabulary/NewVocabularyRow";
 import { useDecks } from "@/hooks/useDecks";
 import { useQuickAddCard } from "@/hooks/useQuickAddCard";
 import { useReadingPassages, useSubmitReadingPassageAttempt } from "@/hooks/useReadingPassages";

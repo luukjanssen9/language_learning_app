@@ -3,16 +3,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.vocabulary import NewVocabularyWord
+
 
 class ReadingPassageGenerate(BaseModel):
     """Request body for POST /reading-passages."""
 
     course_id: uuid.UUID
-
-
-class NewVocabularyWord(BaseModel):
-    target_text: str
-    base_text: str
 
 
 class ReadingPassageQuestion(BaseModel):

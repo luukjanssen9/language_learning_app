@@ -49,3 +49,13 @@ class VocabularyExampleRead(BaseModel):
     target_text: str
     base_text: str
     created_at: datetime
+
+
+class NewVocabularyWord(BaseModel):
+    """A bare word + translation, no other metadata -- shared by any
+    feature that surfaces "you encountered this new word, want to add it?"
+    (reading-passage generation, paste-in unknown-word flagging).
+    """
+
+    target_text: str
+    base_text: str

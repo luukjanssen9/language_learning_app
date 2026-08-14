@@ -15,7 +15,10 @@ from app.models.known_vocabulary import KnownVocabularyItem
 from app.models.language import Language
 from app.models.user import User
 from app.models.vocabulary import VocabularyItem
-from app.services.known_vocabulary_lookup import get_known_words_for_passage
+from app.services.known_vocabulary_lookup import (
+    get_full_known_word_set,
+    get_known_words_for_passage,
+)
 
 
 async def _make_course(db: AsyncSession) -> Course:
@@ -116,3 +119,47 @@ async def test_empty_known_vocabulary_returns_empty_list_without_erroring(db_ses
     words = await get_known_words_for_passage(db_session, course.id)
 
     assert words == []
+
+
+async def test_full_known_word_set_is_uncapped_and_normalized(db_session: AsyncSession):
+    course = await _make_course(db_session)
+    deck = await _make_deck(db_session, course)
+    await _make_mastered_card(db_session, course, deck, "PERRO")  # uppercase, still matches
+    for i in range(500):  # well beyond get_known_words_for_passage's default 300 cap
+        db_session.add(
+            KnownVocabularyItem(
+                course_id=course.id,
+                target_text=f"word{i}",
+                source=KnownVocabularySource.PLACEMENT_CHECK,
+            )
+        )
+    await db_session.flush()
+
+    words = await get_full_known_word_set(db_session, course.id)
+
+    assert len(words) == 501  # every row present, nothing sampled away
+    assert "perro" in words  # normalized (lowercased) form
+
+
+async def test_full_known_word_set_unions_mastered_and_estimated(db_session: AsyncSession):
+    course = await _make_course(db_session)
+    deck = await _make_deck(db_session, course)
+    await _make_mastered_card(db_session, course, deck, "perro")
+    db_session.add(
+        KnownVocabularyItem(
+            course_id=course.id, target_text="gato", source=KnownVocabularySource.MANUAL
+        )
+    )
+    await db_session.flush()
+
+    words = await get_full_known_word_set(db_session, course.id)
+
+    assert words == {"perro", "gato"}
+
+
+async def test_full_known_word_set_empty_returns_empty_set(db_session: AsyncSession):
+    course = await _make_course(db_session)
+
+    words = await get_full_known_word_set(db_session, course.id)
+
+    assert words == set()

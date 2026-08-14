@@ -650,6 +650,12 @@ CHINESE_GRAMMAR_CONFIG = {
     # tier, verified against a live list_voices() call (see Spanish's tts
     # key above for why WaveNet specifically).
     "tts": {"language_code": "cmn-CN", "voice_name": "cmn-CN-Wavenet-A"},
+    # Chinese has no whitespace between words -- the paste-in unknown-word
+    # flagging feature (2026-08-14) needs real segmentation (via jieba),
+    # not the plain whitespace-splitting every other language defaults to.
+    # A config value, not a language-identity branch -- see
+    # app/services/paste_in_tokenizer.py.
+    "tokenization": "cjk",
 }
 
 

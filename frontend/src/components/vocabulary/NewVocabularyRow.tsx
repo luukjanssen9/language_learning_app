@@ -18,6 +18,10 @@ function isAlreadyAdded(word: NewVocabularyWord, existingVocab: VocabularyItem[]
   );
 }
 
+// Generic "you encountered this new word, want to add it?" row -- shared
+// by reading-passage generation and paste-in unknown-word flagging, both
+// of which surface a bare word + translation with a one-click add-to-deck
+// action.
 export function NewVocabularyRow({
   word,
   courseDecks,

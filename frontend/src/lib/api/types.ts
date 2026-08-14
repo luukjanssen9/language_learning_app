@@ -372,3 +372,29 @@ export interface KnownVocabularyBulkCreateResponse {
 export interface KnownVocabularyPromotePayload {
   deck_id: string;
 }
+
+export interface PasteInSegment {
+  text: string;
+  is_word: boolean;
+  // Only meaningful when is_word is true.
+  is_known: boolean;
+}
+
+export interface PasteInAnalyzeResponse {
+  segments: PasteInSegment[];
+  unknown_words: string[];
+}
+
+export interface PasteInAnalyzePayload {
+  course_id: string;
+  text: string;
+}
+
+export interface PasteInTranslatePayload {
+  course_id: string;
+  words: string[];
+}
+
+export interface PasteInTranslateResponse {
+  translations: NewVocabularyWord[];
+}
