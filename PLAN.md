@@ -936,10 +936,86 @@ slice 1 rather than a parallel integration. To be designed together
 before building, same as the vocab-deck feature and the Phase 4
 conjugation feature were.
 
+**2026-08-14 — TTS audio for vocab cards, complete and verified end-to-end.**
+Designed together first (plan mode), same pattern as the vocab-deck and
+conjugation features. Landed on **Google Cloud Text-to-Speech**, not
+Gemini's own TTS: Gemini's audio *output* isn't free-tier (input is;
+output is $10-20/1M tokens) and the models are still preview-status,
+while Google Cloud TTS has a genuine, generous free tier (1M chars/month
+WaveNet, 4M/month Standard) that comfortably covers this app's lifetime
+usage given the caching design. The real cost of this choice was setup
+complexity, not money: a GCP project + service-account JSON keyfile,
+more involved than every other credential in this project. New
+`VocabularyAudio` cache table (one row per word, `unique=True` FK, unlike
+`VocabularyExample`'s one-to-many), `app/services/tts.py` (owns
+`google.cloud.texttospeech` the same way `fsrs_engine.py`/`llm/gemini.py`
+own their libraries — deliberately *not* built as a swappable-provider
+abstraction, matching this project's precedent of not adding
+pluggability until a second real provider exists), and a new
+`GET /vocabulary-items/{id}/audio` endpoint — the app's first binary
+(non-JSON) response. `Language.grammar_config.tts` gates the feature
+per-language (`{"language_code": ..., "voice_name": ...}`); Spanish and
+Chinese have it, Dutch deliberately doesn't (out of the stated "mainly
+for Chinese tones" scope). Frontend: `PlayAudioButton` (lazy `Audio()`
+construction on first click, not on mount), wired into both
+`VocabularyItemRow.tsx` and — the primary surface — `Flashcard.tsx`,
+shown as a sibling overlay next to (not inside) the flip button, gated
+to whichever face currently shows target-language text.
+
+GCP setup was its own saga: no IAM role scoped narrowly to
+Text-to-Speech reliably surfaces in the console's role picker (unlike
+Speech-to-Text, which has several, confusingly-named-similarly roles) —
+two specific guesses ("Cloud Text-to-Speech User", "Vertex AI User")
+both failed to appear for the user's account even with the correct API
+enabled. Settled on **Editor** as a deliberate, documented trade-off
+(broader than ideal, but this is a dedicated single-purpose GCP project
+and the credentials never leave the machine) — see `.env.example`.
+
+**One real bug found once real credentials were live** (invisible with
+the placeholder credentials/fakes, since it only manifests when a real
+`TextToSpeechAsyncClient` is actually constructed): `get_tts_client` was
+a sync function decorated with `@lru_cache`, so FastAPI's dependency
+resolver ran it in a worker thread pool — but the client's grpc.aio
+transport requires a running event loop *in the thread that constructs
+it*, which anyio worker threads don't have (`RuntimeError: There is no
+current event loop in thread`). Fixed by making it `async def` with a
+manual module-level singleton instead of `@lru_cache` (FastAPI awaits
+async dependencies directly on the real event loop, sidestepping the
+thread pool entirely) — see `app/services/tts.py`.
+
+Verified live end-to-end: ran `list_voices()` against the real API to
+get actual Spanish/Chinese voice names (the plan's placeholder guesses,
+e.g. `es-ES-Standard-A`, didn't exist — `es-ES`'s Standard tier starts
+at `-E`); settled on WaveNet tier for both (best quality within the
+confirmed free tier — Chirp/Studio voices are newer/premium, not
+reliably free) and seeded them into `grammar_config.tts` for both
+languages. Confirmed via direct API calls: real MP3 bytes returned
+(valid MPEG frame headers) for both a Spanish and a Chinese word;
+replaying returns byte-identical audio; Postgres holds exactly one
+`vocabulary_audio` row per word even after repeated requests. Confirmed
+in the browser: play buttons appear only for Chinese (not Dutch, which
+has no `tts` config), and correctly only on whichever `Flashcard.tsx`
+face shows target-language text (verified on a production card, no
+button on the front, button appears on the back after flipping to the
+target-text face). Actually *hearing* the output and clicking play
+end-to-end in a real interactive browser was left to the user — the
+automated browser-testing session had no audio output device, which
+made `HTMLMediaElement.play()` hang indefinitely (matches every
+"renderer frozen" symptom hit while trying); a direct `fetch()` to the
+exact URL the button constructs, run from the page's own JS context,
+confirmed the full round trip (new-word generation + persistence) works
+correctly, isolating the audio-hardware gap as an artifact of the test
+environment, not the app.
+
 ## Current Status
 
 **As of 2026-08-14:**
 
+- Done: **TTS audio for vocab cards, complete and verified end-to-end**
+  (Google Cloud Text-to-Speech, real Spanish + Chinese voices, cached in
+  Postgres) — see the decision log entry just above for the full
+  breakdown, including one real threading bug found and fixed once real
+  GCP credentials went live.
 - Done: **Anki-style vocab decks (real-input notes, dual-direction
   cards, quick-add, Chinese as a third language) complete and verified
   end-to-end**, including seven real bugs found and fixed live across

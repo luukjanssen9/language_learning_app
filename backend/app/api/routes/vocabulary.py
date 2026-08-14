@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from google.cloud import texttospeech
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,7 @@ from app.database import get_db
 from app.models.course import Course
 from app.models.language import Language
 from app.models.vocabulary import VocabularyItem
+from app.models.vocabulary_audio import VocabularyAudio
 from app.models.vocabulary_example import VocabularyExample
 from app.schemas.vocabulary import (
     VocabularyExampleRead,
@@ -18,6 +20,7 @@ from app.schemas.vocabulary import (
 )
 from app.services.llm import LLMProvider, get_llm_provider
 from app.services.sentence_generation import generate_example_sentences
+from app.services.tts import get_tts_client, synthesize_speech
 
 router = APIRouter(prefix="/vocabulary-items", tags=["vocabulary"])
 
@@ -115,3 +118,58 @@ async def get_vocabulary_item_examples(
     for example in examples:
         await db.refresh(example)
     return examples
+
+
+@router.get("/{item_id}/audio")
+async def get_vocabulary_item_audio(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tts_client: texttospeech.TextToSpeechAsyncClient = Depends(get_tts_client),
+) -> Response:
+    """Get-or-generate, same shape as the /examples endpoint above: returns
+    a cached pronunciation clip if one exists, otherwise synthesizes it via
+    Google Cloud TTS and persists the result -- one real TTS call per word
+    across its whole lifetime, not one per playback. Raw audio bytes, not
+    JSON -- the first binary response in this app. `Cache-Control` is set
+    aggressively since the audio never changes once generated, so repeat
+    plays don't even reach this endpoint after the first.
+    """
+    item = await get_or_404(db, VocabularyItem, item_id)
+
+    result = await db.execute(
+        select(VocabularyAudio).where(VocabularyAudio.vocabulary_item_id == item_id)
+    )
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        return Response(
+            content=existing.audio_data,
+            media_type=existing.content_type,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
+    course = await get_or_404(db, Course, item.course_id)
+    target_language = await get_or_404(db, Language, course.target_language_id)
+    tts_config = target_language.grammar_config.get("tts")
+    if tts_config is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=f"TTS is not configured for {target_language.name}",
+        )
+
+    audio_data = await synthesize_speech(
+        tts_client,
+        text=item.target_text,
+        language_code=tts_config["language_code"],
+        voice_name=tts_config["voice_name"],
+    )
+    audio = VocabularyAudio(
+        vocabulary_item_id=item.id, audio_data=audio_data, content_type="audio/mpeg"
+    )
+    db.add(audio)
+    await db.commit()
+
+    return Response(
+        content=audio_data,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )

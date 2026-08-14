@@ -1,5 +1,6 @@
 "use client";
 
+import { PlayAudioButton } from "@/components/audio/PlayAudioButton";
 import type { Card, Language, VocabDeckConfig } from "@/lib/api/types";
 
 function sideContent(
@@ -61,8 +62,21 @@ export function Flashcard({
 }) {
   const { front, frontSub, back, backSub } = sideContent(card, targetLanguage);
 
+  // Shown only on whichever face currently displays the target text --
+  // front for recognition cards, back for production cards (the same
+  // direction check sideContent makes) -- and only once that face is
+  // actually the one showing, not just present in the DOM (both faces
+  // always are, per the 3D-flip approach below). A sibling overlay, not
+  // nested inside the flip <button>: a <button> inside a <button> is
+  // invalid HTML, and it would also fire onFlip via event bubbling.
+  const vocab = card.vocabulary_item;
+  const hasTts = Boolean(targetLanguage?.grammar_config.tts);
+  const targetSide: "front" | "back" = card.direction === "base_to_target" ? "back" : "front";
+  const isShowingTargetSide = flipped ? targetSide === "back" : targetSide === "front";
+  const showPlayButton = vocab && hasTts && isShowingTargetSide;
+
   return (
-    <div className="mx-auto w-full max-w-sm [perspective:1200px]">
+    <div className="relative mx-auto w-full max-w-sm [perspective:1200px]">
       <button
         type="button"
         onClick={onFlip}
@@ -80,6 +94,11 @@ export function Flashcard({
           {backSub && <span className="text-center text-sm text-ink-soft">{backSub}</span>}
         </div>
       </button>
+      {showPlayButton && (
+        <div className="absolute right-4 top-4 z-10">
+          <PlayAudioButton vocabularyItemId={vocab.id} />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { PlayAudioButton } from "@/components/audio/PlayAudioButton";
 import { useVocabularyExamples } from "@/hooks/useVocabulary";
 import type { VocabularyItem } from "@/lib/api/types";
 
-export function VocabularyItemRow({ item }: { item: VocabularyItem }) {
+export function VocabularyItemRow({
+  item,
+  hasTts,
+}: {
+  item: VocabularyItem;
+  hasTts: boolean;
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { data: examples, isPending, isError } = useVocabularyExamples(item.id, isExpanded);
 
@@ -19,13 +26,16 @@ export function VocabularyItemRow({ item }: { item: VocabularyItem }) {
             <p className="mt-0.5 text-xs text-ink-soft">{item.part_of_speech}</p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setIsExpanded((v) => !v)}
-          className="shrink-0 text-sm text-ink-soft"
-        >
-          {isExpanded ? "Hide examples" : "Generate examples"}
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          {hasTts && <PlayAudioButton vocabularyItemId={item.id} />}
+          <button
+            type="button"
+            onClick={() => setIsExpanded((v) => !v)}
+            className="text-sm text-ink-soft"
+          >
+            {isExpanded ? "Hide examples" : "Generate examples"}
+          </button>
+        </div>
       </div>
 
       {isExpanded && (

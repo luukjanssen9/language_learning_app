@@ -412,6 +412,11 @@ SPANISH_GRAMMAR_CONFIG = {
     # not a hardcoded "if language != chinese" anywhere (2026-08-14
     # "Anki-style vocab decks" decision).
     "vocab_deck": {"dual_direction_cards": False},
+    # Voice confirmed against a live list_voices() call against the real
+    # API (not guessed) -- WaveNet tier specifically, since that's the
+    # tier this app's free-tier cost analysis was based on (Chirp/Studio
+    # voices are newer/premium and not reliably free).
+    "tts": {"language_code": "es-ES", "voice_name": "es-ES-Wavenet-F"},
     # Rendered generically by the frontend (lib/practiceCategories.ts),
     # not hardcoded per-language category names in component logic --
     # `key` matches Skill.specialty_module (None for the plain vocab
@@ -621,6 +626,10 @@ CHINESE_GRAMMAR_CONFIG = {
             "min_days_since_note_added": 14,
         },
     },
+    # Mandarin's tones are the whole reason this feature exists -- WaveNet
+    # tier, verified against a live list_voices() call (see Spanish's tts
+    # key above for why WaveNet specifically).
+    "tts": {"language_code": "cmn-CN", "voice_name": "cmn-CN-Wavenet-A"},
 }
 
 

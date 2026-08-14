@@ -125,6 +125,76 @@ describe("Flashcard", () => {
     expect(screen.getByText("你好 (nǐ hǎo)")).toBeInTheDocument();
   });
 
+  it("shows a play-audio button on the target-text face when the language has TTS configured", () => {
+    const chineseWithTts: Language = {
+      ...chineseLanguage,
+      grammar_config: {
+        ...chineseLanguage.grammar_config,
+        tts: { language_code: "cmn-CN", voice_name: "cmn-CN-Standard-A" },
+      },
+    };
+    const recognitionCard: Card = {
+      ...card,
+      vocabulary_item_id: vocabularyItem.id,
+      vocabulary_item: vocabularyItem,
+      direction: "target_to_base",
+    };
+    render(
+      <Flashcard
+        card={recognitionCard}
+        flipped={false}
+        onFlip={() => {}}
+        targetLanguage={chineseWithTts}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Play pronunciation" })).toBeInTheDocument();
+  });
+
+  it("hides the play-audio button when the language has no TTS configured", () => {
+    const recognitionCard: Card = {
+      ...card,
+      vocabulary_item_id: vocabularyItem.id,
+      vocabulary_item: vocabularyItem,
+      direction: "target_to_base",
+    };
+    render(
+      <Flashcard
+        card={recognitionCard}
+        flipped={false}
+        onFlip={() => {}}
+        targetLanguage={chineseLanguage}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Play pronunciation" })).not.toBeInTheDocument();
+  });
+
+  it("hides the play-audio button on the non-target face (production card, front not flipped)", () => {
+    const chineseWithTts: Language = {
+      ...chineseLanguage,
+      grammar_config: {
+        ...chineseLanguage.grammar_config,
+        tts: { language_code: "cmn-CN", voice_name: "cmn-CN-Standard-A" },
+      },
+    };
+    const productionCard: Card = {
+      ...card,
+      vocabulary_item_id: vocabularyItem.id,
+      vocabulary_item: vocabularyItem,
+      direction: "base_to_target",
+    };
+    // Production card, not flipped -- the front shows base_text, not the
+    // target text, so no play button yet.
+    render(
+      <Flashcard
+        card={productionCard}
+        flipped={false}
+        onFlip={() => {}}
+        targetLanguage={chineseWithTts}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Play pronunciation" })).not.toBeInTheDocument();
+  });
+
   it("omits transliteration when the target language doesn't need one", () => {
     const spanishLanguage: Language = {
       ...chineseLanguage,

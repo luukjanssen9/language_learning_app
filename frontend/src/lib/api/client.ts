@@ -31,3 +31,11 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: (path: string) => request<void>(path, { method: "DELETE" }),
 };
+
+// For the rare resource consumed directly as a URL (e.g. an <audio> src)
+// rather than fetched and JSON-parsed through `api` above -- the TTS
+// audio endpoint returns raw bytes, not JSON (see the 2026-08-14 "TTS
+// audio for vocab cards" decision).
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}/api${path}`;
+}

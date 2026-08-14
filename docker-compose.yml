@@ -24,6 +24,12 @@ services:
       # for host-machine dev) — inside the compose network the backend must
       # reach Postgres via its service name instead.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-language_app}:${POSTGRES_PASSWORD:-language_app}@postgres:5432/${POSTGRES_DB:-language_app}
+      # Google Cloud client libraries auto-discover credentials from this
+      # standard env var (Application Default Credentials) -- no custom
+      # Settings field needed for the path itself. The file it points at
+      # is gitignored, same treatment as .env (see 2026-08-14 "TTS audio
+      # for vocab cards" decision).
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-tts-credentials.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,6 +37,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./gcp-tts-credentials.json:/app/gcp-tts-credentials.json:ro
 
   # For active development, prefer running the frontend natively
   # (`cd frontend && npm run dev`) instead of via this service — Docker

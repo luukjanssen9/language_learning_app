@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.routes import api_router
 from app.config import settings
 from app.services.llm.base import LLMError
+from app.services.tts import TTSError
 
 app = FastAPI(title="Language App API", version="0.1.0")
 
@@ -38,6 +39,14 @@ async def llm_error_handler(request: Request, exc: LLMError) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_502_BAD_GATEWAY,
         content={"detail": f"LLM provider error: {exc}"},
+    )
+
+
+@app.exception_handler(TTSError)
+async def tts_error_handler(request: Request, exc: TTSError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"detail": f"TTS provider error: {exc}"},
     )
 
 

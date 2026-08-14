@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+gcp-tts-credentials.json
 
 # --- Python ---
 __pycache__/
