@@ -23,12 +23,15 @@ from sqlalchemy import delete, select
 
 from app.database import AsyncSessionLocal
 from app.models.course import Course
+from app.models.deck import Deck
 from app.models.enums import ExerciseType
 from app.models.language import Language
 from app.models.lesson_exercise import LessonExercise, LessonExerciseVocabulary
 from app.models.skill import Skill
+from app.models.user import User
 from app.models.user_exercise_attempt import UserExerciseAttempt
 from app.models.vocabulary import VocabularyItem
+from app.services.note_cards import build_cards_for_note
 
 # Matches frontend/src/lib/bootstrap.ts's codes/slug exactly, so the app's
 # silent bootstrap and this seed script converge on the same rows instead
@@ -37,6 +40,13 @@ EN_CODE = "en"
 ES_CODE = "es"
 COURSE_SLUG = "en-es"
 
+# Matches bootstrap.ts's own DEFAULT_USER_EMAIL/DEFAULT_USER_DISPLAY_NAME
+# literals exactly, so a note-seeding deck created here (see
+# _get_or_create_user below) converges on the same single user the
+# frontend's silent bootstrap creates/reuses, rather than a second one.
+DEFAULT_USER_EMAIL = "you@example.com"
+DEFAULT_USER_DISPLAY_NAME = "Learner"
+
 # Dutch (2026-08-14 "v1 Dutch course" decision): a second language,
 # specifically to prove this project's "language-agnostic by design"
 # principle against something other than Spanish -- see the three
@@ -44,6 +54,16 @@ COURSE_SLUG = "en-es"
 # finding and fixing along the way.
 NL_CODE = "nl"
 DUTCH_COURSE_SLUG = "en-nl"
+
+# Chinese (2026-08-14 "Anki-style vocab decks" decision): a third language,
+# specifically the one that needed the recognition/production card split
+# and transliteration handling the vocab-deck feature was designed around
+# -- see grammar_config["vocab_deck"] below and app/services/note_cards.py.
+# No lesson/skill content for Chinese (unlike Spanish/Dutch) -- this
+# language exists purely to prove the Anki-deck side of the app, per the
+# user's own spec, which scopes conjugation/lesson practice out entirely.
+ZH_CODE = "zh"
+CHINESE_COURSE_SLUG = "en-zh"
 
 # Six-person paradigm. "él" also covers "ella"/"usted" and "ellos" also
 # covers "ellas"/"ustedes" -- those pairs conjugate identically in Spanish,
@@ -386,6 +406,12 @@ SPANISH_GRAMMAR_CONFIG = {
             "nosotros": "nosotros", "vosotros": "vosotros", "ellos": "ustedes",
         },
     },
+    # Spanish reading/writing isn't a distinct skill the way Chinese
+    # recognition/production is (same alphabet the user already knows) --
+    # one card per note, read generically by app/services/note_cards.py,
+    # not a hardcoded "if language != chinese" anywhere (2026-08-14
+    # "Anki-style vocab decks" decision).
+    "vocab_deck": {"dual_direction_cards": False},
     # Rendered generically by the frontend (lib/practiceCategories.ts),
     # not hardcoded per-language category names in component logic --
     # `key` matches Skill.specialty_module (None for the plain vocab
@@ -557,6 +583,9 @@ DUTCH_GRAMMAR_CONFIG = {
             "nosotros": "wij", "vosotros": "jullie", "ellos": "zij",
         },
     },
+    # Dutch uses the same Latin alphabet the user already knows -- no
+    # recognition/production split needed, same reasoning as Spanish's.
+    "vocab_deck": {"dual_direction_cards": False},
     # No "subjunctive" entry -- Dutch's subjunctive is archaic/non-
     # productive in modern usage, not a gap in the app (2026-08-14
     # decision, on request).
@@ -569,6 +598,29 @@ DUTCH_GRAMMAR_CONFIG = {
             "kind": "conjugation_drill",
         },
     ],
+}
+
+
+CHINESE_GRAMMAR_CONFIG = {
+    # No "conjugation"/"practice_categories" keys -- Chinese has no lesson
+    # content in this app (yet); it exists specifically to prove the
+    # Anki-deck feature's recognition/production split and transliteration
+    # handling generalize to a language that actually needs them, per the
+    # user's own spec (2026-08-14 "Anki-style vocab decks" decision).
+    "vocab_deck": {
+        "dual_direction_cards": True,
+        "needs_transliteration": True,
+        "transliteration_label": "Pinyin",
+        # A production card unlocks once EITHER condition is met, not
+        # both: a fast learner shouldn't have to wait out the clock, and a
+        # slow-but-persistent one shouldn't stay stuck forever short of
+        # the review count. See api/routes/cards.py's list_due_cards for
+        # where this is read and checked.
+        "production_gate": {
+            "min_successful_recognition_reviews": 5,
+            "min_days_since_note_added": 14,
+        },
+    },
 }
 
 
@@ -679,6 +731,83 @@ async def _get_or_create_vocab(
         )
         session.add(item)
         await session.flush()
+    return item
+
+
+async def _get_or_create_user(session) -> User:
+    """Reuses whichever user already exists (same "just take the first
+    one" convention as bootstrap.ts's own `users[0] ?? create(...)`),
+    creating the same placeholder bootstrap.ts would if neither has run
+    yet -- avoids this script and the frontend's silent bootstrap ever
+    creating two different single users.
+    """
+    result = await session.execute(select(User).limit(1))
+    user = result.scalar_one_or_none()
+    if user is None:
+        user = User(email=DEFAULT_USER_EMAIL, display_name=DEFAULT_USER_DISPLAY_NAME)
+        session.add(user)
+        await session.flush()
+    return user
+
+
+async def _get_or_create_deck(session, user: User, course: Course, *, name: str) -> Deck:
+    result = await session.execute(
+        select(Deck).where(Deck.course_id == course.id, Deck.name == name)
+    )
+    deck = result.scalar_one_or_none()
+    if deck is None:
+        deck = Deck(user_id=user.id, course_id=course.id, name=name)
+        session.add(deck)
+        await session.flush()
+    return deck
+
+
+async def _seed_note(
+    session,
+    course: Course,
+    deck: Deck,
+    target_language: Language,
+    *,
+    target_text: str,
+    base_text: str,
+    part_of_speech: str | None = None,
+    source: str | None = None,
+    example_sentence: str | None = None,
+    example_sentence_translation: str | None = None,
+    tags: list[str] | None = None,
+    attributes: dict | None = None,
+) -> VocabularyItem:
+    """Like _get_or_create_vocab, but for real-input Anki-deck notes: also
+    populates the note-specific fields (source, example sentence, tags)
+    and generates this note's Card(s) via the same
+    build_cards_for_note() the live quick-add endpoint uses (see
+    api/routes/cards.py), so seeded content is verified through the real
+    card-generation path, not a hand-rolled shortcut. Only runs
+    build_cards_for_note() the first time a note is created -- re-running
+    the seed script must stay idempotent and not spawn duplicate cards
+    for a note that already exists.
+    """
+    result = await session.execute(
+        select(VocabularyItem).where(
+            VocabularyItem.course_id == course.id, VocabularyItem.target_text == target_text
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        item = VocabularyItem(
+            course_id=course.id,
+            target_text=target_text,
+            base_text=base_text,
+            part_of_speech=part_of_speech,
+            source=source,
+            example_sentence=example_sentence,
+            example_sentence_translation=example_sentence_translation,
+            tags=tags or [],
+            attributes=attributes or {},
+        )
+        session.add(item)
+        await session.flush()
+        session.add_all(build_cards_for_note(deck.id, item.id, target_language))
     return item
 
 
@@ -1098,22 +1227,128 @@ async def _seed_subjunctive_trigger_skills(session, course: Course, prerequisite
             )
 
 
+# Real, sourced vocab notes for the Anki-style deck feature (2026-08-14
+# "Anki-style vocab decks" decision) -- distinct from the Greetings/
+# Family lesson-exercise vocab above, which has no source/example-
+# sentence fields and generates LessonExercises, not Cards. A handful of
+# hand-verified entries per language, run through the real
+# build_cards_for_note() path (via _seed_note), not hand-built Card rows.
+SPANISH_VOCAB_NOTES = [
+    {
+        "target_text": "madrugar",
+        "base_text": "to get up early",
+        "part_of_speech": "verb",
+        "source": "Podcast: SpanishPod101 - Daily Routines",
+        "example_sentence": "Tengo que madrugar mañana para el vuelo.",
+        "example_sentence_translation": "I have to get up early tomorrow for the flight.",
+        "tags": ["daily-life"],
+    },
+    {
+        "target_text": "de vez en cuando",
+        "base_text": "once in a while",
+        "part_of_speech": "phrase",
+        "source": "Movie: Roma",
+        "example_sentence": "Voy al gimnasio de vez en cuando.",
+        "example_sentence_translation": "I go to the gym once in a while.",
+        "tags": ["frequency"],
+    },
+    {
+        "target_text": "aprovechar",
+        "base_text": "to make the most of",
+        "part_of_speech": "verb",
+        "source": "Podcast: Notes in Spanish",
+        "example_sentence": "Vamos a aprovechar el buen tiempo hoy.",
+        "example_sentence_translation": "Let's make the most of the good weather today.",
+        "tags": ["daily-life"],
+    },
+]
+
+# Pinyin uses diacritic tone marks (nǐ hǎo), not tone numerals (ni3 hao3)
+# -- per the user's own spec, diacritics train the visual/audio
+# association better. Kept deliberately small and to extremely common,
+# unambiguous vocabulary: unlike the Spanish grammar rules elsewhere in
+# this file (verified programmatically via the resolution-check scripts
+# from the Dutch course decision), tone-mark accuracy here can't be
+# cross-checked by running code -- worth a human sanity check before
+# treating this as a template for adding more.
+CHINESE_VOCAB_NOTES = [
+    {
+        "target_text": "你好",
+        "base_text": "hello",
+        "part_of_speech": "word",
+        "source": "Podcast: ChinesePod - Greetings",
+        "example_sentence": "你好，很高兴认识你。",
+        "example_sentence_translation": "Hello, nice to meet you.",
+        "tags": ["greetings"],
+        "attributes": {
+            "transliteration": "nǐ hǎo",
+            "example_sentence_transliteration": "Nǐ hǎo, hěn gāoxìng rènshi nǐ.",
+        },
+    },
+    {
+        "target_text": "谢谢",
+        "base_text": "thank you",
+        "part_of_speech": "word",
+        "source": "Podcast: ChinesePod - Basics",
+        "example_sentence": "谢谢你的帮助。",
+        "example_sentence_translation": "Thank you for your help.",
+        "tags": ["greetings"],
+        "attributes": {
+            "transliteration": "xièxie",
+            "example_sentence_transliteration": "Xièxie nǐ de bāngzhù.",
+        },
+    },
+    {
+        "target_text": "慢慢来",
+        "base_text": "take your time",
+        "part_of_speech": "set phrase",
+        "source": "Podcast: ChinesePod - Everyday Expressions",
+        "example_sentence": "没关系，慢慢来。",
+        "example_sentence_translation": "It's okay, take your time.",
+        "tags": ["daily-life"],
+        "attributes": {
+            "transliteration": "màn màn lái",
+            "example_sentence_transliteration": "Méi guānxi, màn màn lái.",
+        },
+    },
+]
+
+
+async def _seed_spanish_vocab_notes(
+    session, course: Course, deck: Deck, language: Language
+) -> None:
+    for note in SPANISH_VOCAB_NOTES:
+        await _seed_note(session, course, deck, language, **note)
+
+
+async def _seed_chinese_vocab_notes(
+    session, course: Course, deck: Deck, language: Language
+) -> None:
+    for note in CHINESE_VOCAB_NOTES:
+        await _seed_note(session, course, deck, language, **note)
+
+
 async def seed() -> None:
     async with AsyncSessionLocal() as session:
         english = await _get_or_create_language(session, EN_CODE, "English")
         spanish = await _get_or_create_language(session, ES_CODE, "Spanish")
         dutch = await _get_or_create_language(session, NL_CODE, "Dutch")
+        chinese = await _get_or_create_language(session, ZH_CODE, "Chinese")
         # Always overwrite: this is seed/dev content with one canonical
         # source (this file), not user data -- re-running should converge
         # on exactly this config, not accumulate drift.
         spanish.grammar_config = SPANISH_GRAMMAR_CONFIG
         dutch.grammar_config = DUTCH_GRAMMAR_CONFIG
+        chinese.grammar_config = CHINESE_GRAMMAR_CONFIG
 
         course = await _get_or_create_course(
             session, english, spanish, name="English to Spanish", slug=COURSE_SLUG
         )
         dutch_course = await _get_or_create_course(
             session, english, dutch, name="English to Dutch", slug=DUTCH_COURSE_SLUG
+        )
+        chinese_course = await _get_or_create_course(
+            session, english, chinese, name="English to Chinese", slug=CHINESE_COURSE_SLUG
         )
 
         greetings = await _seed_greetings_skill(session, course)
@@ -1127,9 +1362,24 @@ async def seed() -> None:
         )
         await _seed_dutch_conjugation_skill(session, dutch_course, prerequisite=dutch_family)
 
+        # Anki-style vocab-deck notes, real content run through the actual
+        # build_cards_for_note() path -- see the 2026-08-14 "Anki-style
+        # vocab decks" decision. One shared user/deck-per-course
+        # convention (_get_or_create_user/_get_or_create_deck), converging
+        # on the same single user bootstrap.ts creates/reuses.
+        user = await _get_or_create_user(session)
+        spanish_vocab_deck = await _get_or_create_deck(session, user, course, name="Spanish Vocab")
+        await _seed_spanish_vocab_notes(session, course, spanish_vocab_deck, spanish)
+        chinese_vocab_deck = await _get_or_create_deck(
+            session, user, chinese_course, name="Chinese Vocab"
+        )
+        await _seed_chinese_vocab_notes(session, chinese_course, chinese_vocab_deck, chinese)
+
         await session.commit()
         print(f"Seeded course {course.slug!r} (id={course.id})")
         print(f"Seeded course {dutch_course.slug!r} (id={dutch_course.id})")
+        print(f"Seeded course {chinese_course.slug!r} (id={chinese_course.id})")
+        print(f"Seeded vocab decks {spanish_vocab_deck.name!r}, {chinese_vocab_deck.name!r}")
 
 
 if __name__ == "__main__":

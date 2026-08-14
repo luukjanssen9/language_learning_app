@@ -689,13 +689,227 @@ doesn't survive a course change) still correctly bounces back to
 `/course`'s own root, so the original fix that line existed for still
 works. `tsc`/`eslint` re-run clean after the change.
 
+**2026-08-14 — Anki-style vocab decks built: real-input notes, dual-
+direction cards, quick-add, Chinese as a third language.** The user did
+outside research on how they want their Anki-style vocab decks to work
+(sourced from real shadowing/reading input, not generic pre-made lists)
+and asked for it before continuing Phase 5. Clarified up front: real
+content for both Spanish and Chinese now (not just architecture); the
+note's own real, sourced example sentence is a distinct concept from
+Phase 5's LLM-generated `VocabularyExample` (both coexist); build real
+production-card gating now, not a stub; quick-add is global, reachable
+from any page.
+
+**Data model**: `VocabularyItem` gains four universal columns —
+`source`, `example_sentence`, `example_sentence_translation`, `tags`
+(JSONB list) — kept as plain columns since every language needs them,
+unlike Chinese-only pinyin data, which goes in the existing `attributes`
+JSONB bag under a *generic* key (`transliteration`, not `pinyin` —
+caught before committing: hardcoding a Chinese-specific key name in
+frontend code would have been exactly the kind of per-language branching
+this project's own principle forbids; a future Japanese/Korean
+transliteration would need a different key otherwise).
+`Language.grammar_config` gains a `vocab_deck` sub-key
+(`dual_direction_cards`, `needs_transliteration`,
+`transliteration_label`, `production_gate`) — Spanish/Dutch set
+`dual_direction_cards: false`, Chinese sets it `true`, same per-language-
+data-not-code-branch pattern as the Dutch course's
+`perfect_auxiliary`/`pronoun_labels`. New `CardState.SUSPENDED` (plain
+migration, no `ALTER TYPE`, per the existing enum-storage convention) —
+a dual-direction note's production card starts here instead of `NEW`,
+invisible to the due-queue and the new-card cap until its production
+gate is met. New `Card.vocabulary_item` relationship + `CardRead`
+nesting it (via `selectinload`, avoiding an N+1 for a due-queue that can
+hold 100+ cards) — closes the "Card → VocabularyItem never resolved
+anywhere" gap Phase 5 planning had found and left open. New
+`Deck.daily_new_card_cap` (nullable — `None` means "use the 15 default").
+
+**Backend**: new `app/services/note_cards.py` (`build_cards_for_note`,
+pure, same convention as `conjugation.py`) — one card for a single-
+direction language, two (recognition `NEW` + production `SUSPENDED`)
+for a dual-direction one. New `POST /cards/quick-add`: one round trip,
+creates the `VocabularyItem` note and its `Card`(s) together — the whole
+point of "capture a word mid-shadowing-session." `GET /cards/due` gained
+two pieces of real logic: (1) a production-gate unlock check — a
+`SUSPENDED` card flips to `NEW` once its sibling recognition card has
+either ≥N successful reviews or the note is ≥M days old, whichever comes
+first; (2) genuine daily-new-card-cap enforcement, computed from
+`ReviewLog` rows where `state_before == NEW` and `reviewed_at` falls in
+today's UTC calendar day — no new counter table, reusing data the FSRS
+engine already records. `new_limit` stays available as an explicit
+per-request override (existing tests/frontend calls depend on it) but
+now defaults to the deck's own cap instead of a flat 20.
+
+**Two real bugs found live, both fixed**: (1) `QuickAddDialog`'s native
+`<dialog>` rendered pinned to the top-left corner instead of centered —
+Tailwind's preflight reset strips the browser's default `margin: auto`
+centering; fixed with explicit `fixed inset-0 m-auto`. (2) The
+production-gate unlock (`card.state = CardState.NEW`) was never
+committed in `list_due_cards` — a GET request's DB session (see
+`app/database.py`'s `get_db`) closes without auto-committing, so the
+flip was only visible for the rest of *that* request and silently
+reverted on the next `/due` call. The test suite's session-per-test
+fixture convention (one shared session across every request in a test)
+couldn't catch this class of bug — it was found only via real,
+independent `curl` calls against the live API, each a genuinely separate
+request the way the real frontend behaves. Fixed with an explicit
+`await db.commit()` right after the unlock check.
+
+**Content**: 3 real Spanish notes (single card each) and 3 real Chinese
+notes (recognition + suspended production each), seeded through the
+actual `build_cards_for_note` path via new `_seed_note`/
+`_get_or_create_user`/`_get_or_create_deck` helpers in `seed.py` — the
+seeded user converges on the same single user `bootstrap.ts` creates
+(same email/display-name literals), so seed.py and the frontend never
+create two different "the" users. Chinese pinyin uses diacritic tone
+marks (nǐ hǎo), not numerals, per the user's spec — flagged in a code
+comment that tone-mark accuracy, unlike this project's Spanish grammar
+rules, can't be cross-checked by running code and is worth a human
+sanity check before extending.
+
+**Verified**: 88 backend tests (16 new — `note_cards.py` unit tests plus
+`test_quick_add_and_gating.py`'s integration coverage of quick-add,
+single/dual-direction generation, suspended-card review rejection, both
+gate types, and the daily cap including a day-boundary case), `ruff`
+clean. Frontend: 15 tests (3 new `Flashcard` cases for recognition/
+production/no-transliteration rendering), `tsc`/`eslint` clean. Live:
+quick-added a real Chinese word from the dashboard (not a deck page),
+confirmed via a direct Postgres query it produced exactly the
+recognition-`new`/production-`suspended` pair; drove that note's
+recognition card through 5 real reviews via the API and confirmed the
+production card actually unlocked and *stayed* unlocked on a fresh
+request after the commit fix; set a deck's cap to 1 and confirmed the
+due-queue correctly reported zero remaining new cards for the rest of
+the day. Existing `test_due_queue_appends_new_cards_oldest_first_capped_at_new_limit`
+needed a one-line update (new_limit 2→3): a due card's own first review
+now legitimately counts toward the daily cap the same as any other, so
+the test's own setup consumed one of its requested slots — a real
+behavior change, not a bug.
+
+**2026-08-14 — Five real issues found using the vocab-deck feature live,
+all fixed.** The user tried the built feature and reported three things
+in one message; investigating them surfaced two more along the way.
+
+1. **Quick-add showed on every page**, including Course and Vocabulary,
+   where it doesn't apply (it creates flashcard notes, not lesson
+   content). `Nav.tsx` now only renders it on `/` and `/decks/*`.
+2. **Deck detail page showed vocabulary-backed cards as blank text with
+   just the arrow separator.** `CardListItem.tsx` (unlike `Flashcard.tsx`,
+   already fixed in the Anki-decks entry above) was never updated to
+   read `card.vocabulary_item` — it only ever read `front_override`/
+   `back_override`, both null for note-backed cards. Fixed the same way,
+   plus added a "Recognition"/"Production" label so a dual-direction
+   note's two rows (same words, same deck) read as distinct rather than
+   duplicates. Also hid the "Edit" button for vocabulary-backed cards
+   entirely, rather than ship it broken: `CardForm` only edits
+   `front_override`/`back_override`, which `Flashcard.tsx` ignores
+   whenever `vocabulary_item` is present, so "editing" one would save
+   successfully with zero visible effect. A real note editor is a
+   separate, not-yet-built feature.
+3. **"Hard"/"Again" ratings never came back within the same session,**
+   unlike Anki. Root cause wasn't wrong scheduling -- FSRS correctly
+   scheduled a short same-day follow-up (its normal minutes-scale
+   learning steps) -- the review session just never re-checked whether
+   an earlier card became due again, since `useDueCards`' frozen queue
+   (`staleTime: Infinity`, a deliberate Phase 3 decision to stop a
+   rating's rescheduling from reshuffling cards not yet reached) only
+   ever gets iterated forward. Fixed by promoting the queue to local,
+   mutable state (hydrated once from the fetch, same render-time
+   "adjust state" pattern used for the conjugation drill page's
+   analogous problem) and, on each review response, re-inserting the
+   card a fixed few positions later if it's still `learning`/
+   `relearning` (i.e. FSRS didn't graduate it to `review` yet). A ref
+   (synced via effect, since refs can't be written during render) tracks
+   the *current* index so a slow-arriving response can't insert behind
+   where the session has already moved past. Verified live through a
+   real Again → Good → Easy sequence on one card: requeued twice (each
+   rating short of graduating), then correctly stopped requeuing and let
+   the session complete once Easy graduated it to `review`.
+4. **Dashboard said "0 due" while Study still worked, found live by the
+   user on a second deck right after the first fix.** The dashboard's
+   due/new counts come from `useDeckStatsList`, a plain fetch-once query
+   (30s `staleTime`) -- nothing re-renders it just because real time
+   passes and a short learning-step card's `due_at` slips into the past,
+   so it can go stale purely by sitting open, even though a fresh
+   `/cards/due` fetch (what Study triggers) reflects it immediately.
+   Fixed with `refetchInterval: 30_000` on that query -- polling is a
+   deliberately simple fix for a single-user, local-scale app; revisit
+   if this ever needs to scale beyond that.
+5. **`CardState.SUSPENDED` cards showed as "New" in the deck list**,
+   found while fixing #2: `formatCardStatus` treated `due_at === null`
+   as sufficient for "New", but a locked production card also has a null
+   `due_at` (never scheduled). Added an explicit `suspended` check ahead
+   of that fallback, returning "Locked". Writing a test for this
+   surfaced a second, unrelated, pre-existing bug in the same function:
+   `Math.ceil`-ing a sub-day duration into a day count *before* checking
+   `< 1` can never produce a value under 1, so the "N minutes" branch was
+   dead code -- a card due in 5 minutes displayed "Due in 1 day". Fixed
+   by comparing the raw millisecond duration against one day directly.
+
+Verified: 20 frontend tests (5 new -- `format.test.ts`, covering New/
+Locked/Due-now/minutes/days), `tsc`/`eslint` clean. All fixes confirmed
+live in the browser, not just by test coverage: vocab-backed cards now
+show real text with status + direction labels and no broken Edit
+button on both the Spanish and Chinese decks; Quick-add absent from
+Course/Vocabulary, present on Decks; a real Again-rated card visibly
+reappeared later in the same session and the session still terminated
+correctly once it graduated; the dashboard's due count matched
+`/cards/due` without needing a manual reload.
+
+**2026-08-14 — "Duplicate cards" reported after practicing the Chinese
+deck; investigated and found to be a UX clarity gap, not a data bug —
+fixed the display, not the data.** Queried Postgres directly (both the
+Chinese course specifically and a `HAVING count(*) > 2` sweep across
+every vocabulary item in the database) — no vocabulary item anywhere
+has more than its intended 1 or 2 cards, and `reps` matches
+`review_logs` count exactly per card, so reviewing (including the new
+same-session requeue) isn't duplicating review submissions either. The
+real cause: Chinese notes have always produced 2 real cards
+(recognition + production, by design), but the previous round's fix for
+"cards show blank text" made both suddenly show identical target/base
+text for the first time — two rows reading "你好 → hello" with only a
+small gray suffix distinguishing them looks exactly like an accidental
+duplicate. Fixed by replacing that inline suffix with a visible pill
+badge next to the word ("Recognition"/"Production"). Also added the
+user-requested total-card count (`DeckStats.totalCards` already
+existed, just wasn't displayed) to both the dashboard's per-deck rows
+and its aggregate header. Verified live: Chinese Vocab's 8 rows (4
+words × 2 practice modes) now read unambiguously as pairs, not
+duplicates, and the dashboard shows "8 total" matching the direct
+Postgres count exactly.
+
+**2026-08-14 — Deck detail page gained a sort control** ("Recently
+added" — the prior implicit order, by `created_at` — or "Alphabetical"),
+requested right after the "duplicate cards" investigation above:
+the recognition/production pairs read as less confusing sorted next to
+each other in a stable, chosen order than in creation order. New pure
+`lib/sortCards.ts` (tested, same convention as `deckStats.ts`/
+`format.ts`) groups a dual-direction note's two cards together
+(recognition before production) under both orders. Alphabetical sorts
+by `attributes.transliteration` when a note has one rather than the
+raw target text — sorting hanzi by Unicode code point doesn't read as
+alphabetical the way sorting by its pinyin does. This is a generic
+attribute-key check, not a Chinese-specific branch: any future language
+populating the same `transliteration` key gets the same benefit for
+free. Verified live: Chinese Vocab sorts 慢慢来/你好/谢谢/再见 as
+màn → nǐ → xiè → zài (real pinyin order, not code-point order, which
+would have put 谢谢 before 你好); Spanish Vocab sorts its three notes
+alphabetically by the plain Latin text, unaffected by the
+transliteration fallback since it has none.
+
 ## Current Status
 
-**As of 2026-08-13:**
+**As of 2026-08-14:**
 
+- Done: **Anki-style vocab decks (real-input notes, dual-direction
+  cards, quick-add, Chinese as a third language) complete and verified
+  end-to-end**, including seven real bugs found and fixed live across
+  the initial build and a follow-up round of user testing (two during
+  the build, five more from actually using it afterward) — see the two
+  decision log entries just above for the full breakdown.
 - Done: **Phase 5, slice 1 (LLM service layer + example-sentence
   generation) complete and verified end-to-end**, including live against
-  the real Gemini API — see the decision log entry just above for the
+  the real Gemini API — see the decision log entry above for the
   full breakdown.
 - Done: **v1 Dutch course added, complete and verified end-to-end** —
   second language, ahead of its originally-planned Phase 8 slot,

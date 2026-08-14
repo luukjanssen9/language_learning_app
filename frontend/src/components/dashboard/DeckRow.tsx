@@ -42,7 +42,9 @@ export function DeckRow({ deck, stats }: { deck: Deck; stats: DeckStats | undefi
           />
         </div>
         <p className="mt-2 text-xs text-ink-soft">
-          {stats ? `${stats.dueCount} due · ${stats.newCount} new` : "Loading…"}
+          {stats
+            ? `${stats.dueCount} due · ${stats.newCount} new · ${stats.totalCards} total`
+            : "Loading…"}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-3">

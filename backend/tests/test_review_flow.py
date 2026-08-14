@@ -215,7 +215,13 @@ async def test_due_queue_appends_new_cards_oldest_first_capped_at_new_limit(
     new_2 = await _make_card(client, deck["id"], deck["_course_id"])
     await _make_card(client, deck["id"], deck["_course_id"])  # new_3, beyond the cap
 
-    resp = await client.get("/api/cards/due", params={"deck_id": deck["id"], "new_limit": 2})
+    # new_limit is 3, not 2: due_card's own review above is itself a
+    # NEW-card's first review (state_before == NEW), which counts toward
+    # today's already-shown total the same as any other (see
+    # api/routes/cards.py's _count_new_cards_shown_today) -- it already
+    # spent one of the requested slots before new_1/new_2 are considered,
+    # leaving exactly 2 remaining, same as this test intends to verify.
+    resp = await client.get("/api/cards/due", params={"deck_id": deck["id"], "new_limit": 3})
     ids = [c["id"] for c in resp.json()]
     assert ids == [due_card["id"], new_1["id"], new_2["id"]]
 

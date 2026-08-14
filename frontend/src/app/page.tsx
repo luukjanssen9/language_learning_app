@@ -10,8 +10,12 @@ export default function DashboardPage() {
   const { statsByDeckId } = useDeckStatsList(decks);
 
   const totals = [...statsByDeckId.values()].reduce(
-    (acc, s) => ({ due: acc.due + s.dueCount, new: acc.new + s.newCount }),
-    { due: 0, new: 0 },
+    (acc, s) => ({
+      due: acc.due + s.dueCount,
+      new: acc.new + s.newCount,
+      total: acc.total + s.totalCards,
+    }),
+    { due: 0, new: 0, total: 0 },
   );
 
   return (
@@ -19,7 +23,7 @@ export default function DashboardPage() {
       <header>
         <h1 className="font-display text-3xl text-ink">Your decks</h1>
         <p className="mt-1 text-ink-soft">
-          {totals.due} due · {totals.new} new
+          {totals.due} due · {totals.new} new · {totals.total} total
         </p>
       </header>
 

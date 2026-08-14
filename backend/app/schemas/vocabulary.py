@@ -10,6 +10,14 @@ class VocabularyItemBase(BaseModel):
     base_text: str
     part_of_speech: str | None = None
     attributes: dict = {}
+    # Real, sourced content ("where did this word come from") -- distinct
+    # from VocabularyExample's LLM-generated practice sentences, see that
+    # model's docstring. All optional: lesson-seeded vocab (Greetings,
+    # Family, ...) has none of these.
+    source: str | None = None
+    example_sentence: str | None = None
+    example_sentence_translation: str | None = None
+    tags: list[str] = []
 
 
 class VocabularyItemCreate(VocabularyItemBase):
@@ -21,6 +29,10 @@ class VocabularyItemUpdate(BaseModel):
     base_text: str | None = None
     part_of_speech: str | None = None
     attributes: dict | None = None
+    source: str | None = None
+    example_sentence: str | None = None
+    example_sentence_translation: str | None = None
+    tags: list[str] | None = None
 
 
 class VocabularyItemRead(VocabularyItemBase):

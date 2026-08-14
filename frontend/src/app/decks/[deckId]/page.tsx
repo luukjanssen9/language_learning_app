@@ -8,6 +8,12 @@ import { CardListItem } from "@/components/cards/CardListItem";
 import { DeckForm } from "@/components/decks/DeckForm";
 import { useCards, useCreateCard, useDeleteCard, useUpdateCard } from "@/hooks/useCards";
 import { useDecks, useDeleteDeck, useUpdateDeck } from "@/hooks/useDecks";
+import { sortCards, type CardSortOrder } from "@/lib/sortCards";
+
+const SORT_OPTIONS: { value: CardSortOrder; label: string }[] = [
+  { value: "created", label: "Recently added" },
+  { value: "alphabetical", label: "Alphabetical" },
+];
 
 export default function DeckDetailPage() {
   // useParams(), not the `params` prop: `params` is a Promise in server
@@ -18,6 +24,7 @@ export default function DeckDetailPage() {
   const router = useRouter();
   const [isAdding, setIsAdding] = useState(false);
   const [isEditingDeck, setIsEditingDeck] = useState(false);
+  const [sortOrder, setSortOrder] = useState<CardSortOrder>("created");
 
   // Reuses the same `decks` query the dashboard already populated, rather
   // than a separate get-by-id fetch -- one cache, one source of truth.
@@ -30,6 +37,7 @@ export default function DeckDetailPage() {
   const createCard = useCreateCard(deckId);
   const updateCard = useUpdateCard(deckId);
   const deleteCard = useDeleteCard(deckId);
+  const sortedCards = sortCards(cards, sortOrder);
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-6 p-6">
@@ -81,15 +89,33 @@ export default function DeckDetailPage() {
         )}
       </div>
 
-      <Link
-        href={`/decks/${deckId}/review`}
-        className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg"
-      >
-        Start review
-      </Link>
+      <div className="flex items-center justify-between gap-4">
+        <Link
+          href={`/decks/${deckId}/review`}
+          className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg"
+        >
+          Start review
+        </Link>
+        {cards.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-ink-soft">
+            Sort
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as CardSortOrder)}
+              className="rounded-md border border-line bg-bg px-2 py-1 text-ink"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
 
       <section className="flex flex-col gap-3">
-        {cards.map((card) => (
+        {sortedCards.map((card) => (
           <CardListItem
             key={card.id}
             card={card}

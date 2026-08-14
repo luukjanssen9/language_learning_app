@@ -34,6 +34,14 @@ class CardState(enum.StrEnum):
     LEARNING = "learning"
     REVIEW = "review"
     RELEARNING = "relearning"
+    # A dual-direction note's production card starts here instead of NEW --
+    # exists, but not yet eligible for the due-queue or the new-card cap
+    # until its sibling recognition card's production gate is met (see
+    # PLAN.md's 2026-08-14 "Anki-style vocab decks" decision and
+    # app/api/routes/cards.py's list_due_cards). Not part of the fsrs
+    # package's own State enum (see fsrs_engine.py's module docstring on
+    # CardState.NEW for the precedent of an app-only state).
+    SUSPENDED = "suspended"
 
 
 class ReviewRating(enum.StrEnum):

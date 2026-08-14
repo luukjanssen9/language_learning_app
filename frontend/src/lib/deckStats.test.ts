@@ -21,6 +21,7 @@ function makeCard(overrides: Partial<Card>): Card {
     reps: 0,
     lapses: 0,
     last_reviewed_at: null,
+    vocabulary_item: null,
     ...overrides,
   };
 }

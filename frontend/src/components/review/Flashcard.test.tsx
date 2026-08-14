@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { Card } from "@/lib/api/types";
+import type { Card, Language, VocabularyItem } from "@/lib/api/types";
 import { Flashcard } from "./Flashcard";
 
 const card: Card = {
@@ -20,6 +20,32 @@ const card: Card = {
   reps: 0,
   lapses: 0,
   last_reviewed_at: null,
+  vocabulary_item: null,
+};
+
+const vocabularyItem: VocabularyItem = {
+  id: "vocab-1",
+  course_id: "course-1",
+  target_text: "你好",
+  base_text: "hello",
+  part_of_speech: "word",
+  attributes: { transliteration: "nǐ hǎo" },
+  source: "Podcast: ChinesePod - Greetings",
+  example_sentence: "你好，很高兴认识你。",
+  example_sentence_translation: "Hello, nice to meet you.",
+  tags: ["greetings"],
+  created_at: "2026-08-14T00:00:00Z",
+};
+
+const chineseLanguage: Language = {
+  id: "lang-1",
+  code: "zh",
+  name: "Chinese",
+  script_direction: "ltr",
+  grammar_config: {
+    vocab_deck: { dual_direction_cards: true, needs_transliteration: true },
+  },
+  created_at: "2026-08-14T00:00:00Z",
 };
 
 describe("Flashcard", () => {
@@ -59,5 +85,67 @@ describe("Flashcard", () => {
       />,
     );
     expect(screen.getByText("(no front text)")).toBeInTheDocument();
+  });
+
+  it("recognition (target_to_base) shows target text + transliteration on the front", () => {
+    const recognitionCard: Card = {
+      ...card,
+      vocabulary_item_id: vocabularyItem.id,
+      vocabulary_item: vocabularyItem,
+      direction: "target_to_base",
+    };
+    render(
+      <Flashcard
+        card={recognitionCard}
+        flipped={false}
+        onFlip={() => {}}
+        targetLanguage={chineseLanguage}
+      />,
+    );
+    expect(screen.getByText("你好 (nǐ hǎo)")).toBeInTheDocument();
+    expect(screen.getByText("你好，很高兴认识你。")).toBeInTheDocument();
+  });
+
+  it("production (base_to_target) shows base text on the front, target + transliteration on the back", () => {
+    const productionCard: Card = {
+      ...card,
+      vocabulary_item_id: vocabularyItem.id,
+      vocabulary_item: vocabularyItem,
+      direction: "base_to_target",
+    };
+    render(
+      <Flashcard
+        card={productionCard}
+        flipped={true}
+        onFlip={() => {}}
+        targetLanguage={chineseLanguage}
+      />,
+    );
+    expect(screen.getByText("hello")).toBeInTheDocument();
+    expect(screen.getByText("你好 (nǐ hǎo)")).toBeInTheDocument();
+  });
+
+  it("omits transliteration when the target language doesn't need one", () => {
+    const spanishLanguage: Language = {
+      ...chineseLanguage,
+      code: "es",
+      name: "Spanish",
+      grammar_config: { vocab_deck: { dual_direction_cards: false } },
+    };
+    const spanishVocab: VocabularyItem = {
+      ...vocabularyItem,
+      target_text: "hola",
+      base_text: "hello",
+      attributes: {},
+    };
+    render(
+      <Flashcard
+        card={{ ...card, vocabulary_item_id: spanishVocab.id, vocabulary_item: spanishVocab }}
+        flipped={false}
+        onFlip={() => {}}
+        targetLanguage={spanishLanguage}
+      />,
+    );
+    expect(screen.getByText("hola")).toBeInTheDocument();
   });
 });

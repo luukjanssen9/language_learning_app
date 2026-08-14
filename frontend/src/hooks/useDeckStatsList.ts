@@ -15,6 +15,14 @@ export function useDeckStatsList(decks: Deck[]) {
     queries: decks.map((deck) => ({
       queryKey: queryKeys.cards(deck.id),
       queryFn: () => cardsApi.list(deck.id),
+      // Cards don't push updates -- a card scheduled a few minutes out
+      // (a short FSRS learning step) silently becomes due while this
+      // page just sits open, and nothing else re-renders to notice.
+      // Found live: dashboard said "0 due" long after a card actually
+      // was, because the fetched card list itself doesn't change just
+      // from time passing. Polling is the simple fix for a single-user,
+      // local-scale app; revisit if this ever needs to scale further.
+      refetchInterval: 30_000,
     })),
   });
 

@@ -1,9 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { coursesApi } from "@/lib/api/courses";
-import { languagesApi } from "@/lib/api/languages";
+import { useCourses } from "@/hooks/useCourses";
+import { useLanguages } from "@/hooks/useLanguages";
 import type { Course, Language, PracticeCategory } from "@/lib/api/types";
 import { useBootstrapContext } from "./BootstrapProvider";
 
@@ -41,11 +40,8 @@ export function useCourseContext(): CourseContextValue {
 export function CourseProvider({ children }: { children: ReactNode }) {
   const { courseId: bootstrapCourseId } = useBootstrapContext();
 
-  const { data: courses = [] } = useQuery({ queryKey: ["courses"], queryFn: coursesApi.list });
-  const { data: languages = [] } = useQuery({
-    queryKey: ["languages"],
-    queryFn: languagesApi.list,
-  });
+  const { data: courses = [] } = useCourses();
+  const { data: languages = [] } = useLanguages();
 
   // Stored as a plain string, not parsed via readBootstrapCache's JSON
   // convention -- this is a single id, not a structured object.

@@ -1,4 +1,7 @@
 export const queryKeys = {
+  courses: ["courses"] as const,
+  languages: ["languages"] as const,
+
   decks: ["decks"] as const,
   deck: (id: string) => ["decks", id] as const,
   cards: (deckId: string) => ["decks", deckId, "cards"] as const,

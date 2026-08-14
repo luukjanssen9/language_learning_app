@@ -6,7 +6,7 @@
 
 export type ScriptDirection = "ltr" | "rtl";
 export type CardDirection = "target_to_base" | "base_to_target" | "mixed";
-export type CardState = "new" | "learning" | "review" | "relearning";
+export type CardState = "new" | "learning" | "review" | "relearning" | "suspended";
 export type ReviewRating = "again" | "hard" | "good" | "easy";
 export type ExerciseType =
   | "multiple_choice"
@@ -57,6 +57,8 @@ export interface Deck {
   course_id: string;
   name: string;
   description: string | null;
+  // null means "use the app-wide default" (15), not "no cap".
+  daily_new_card_cap: number | null;
   created_at: string;
 }
 
@@ -76,6 +78,9 @@ export interface Card {
   reps: number;
   lapses: number;
   last_reviewed_at: string | null;
+  // Populated server-side via selectinload -- null for override-only
+  // cards (most of the ones created before the Anki-deck note feature).
+  vocabulary_item: VocabularyItem | null;
 }
 
 export interface ReviewLog {
@@ -120,6 +125,7 @@ export interface DeckCreatePayload {
 export interface DeckUpdatePayload {
   name?: string;
   description?: string | null;
+  daily_new_card_cap?: number | null;
 }
 
 export interface CardCreatePayload {
@@ -134,6 +140,26 @@ export interface CardUpdatePayload {
   front_override?: string;
   back_override?: string;
   direction?: CardDirection;
+}
+
+// Request body for POST /cards/quick-add -- creates one VocabularyItem
+// ("note") plus the Card(s) it produces in a single round trip. See
+// CardQuickAdd in backend/app/schemas/card.py.
+export interface CardQuickAddPayload {
+  deck_id: string;
+  target_text: string;
+  base_text: string;
+  part_of_speech?: string | null;
+  source?: string | null;
+  example_sentence?: string | null;
+  example_sentence_translation?: string | null;
+  tags?: string[];
+  attributes?: Record<string, unknown>;
+}
+
+export interface CardQuickAddResponse {
+  vocabulary_item: VocabularyItem;
+  cards: Card[];
 }
 
 export interface SkillIntroExample {
@@ -214,7 +240,29 @@ export interface VocabularyItem {
   base_text: string;
   part_of_speech: string | null;
   attributes: Record<string, unknown>;
+  // Real, sourced content ("where did this word come from") -- distinct
+  // from VocabularyExample below (LLM-generated, no provenance). Null for
+  // lesson-seeded vocab (Greetings, Family, ...), which has none of this.
+  source: string | null;
+  example_sentence: string | null;
+  example_sentence_translation: string | null;
+  tags: string[];
   created_at: string;
+}
+
+// Language.grammar_config.vocab_deck -- read via a loose cast where
+// consumed (grammar_config itself stays a flexible bag, not fully typed),
+// same convention as PracticeCategory above. Absent, or
+// dual_direction_cards: false, means "one card per note" -- most
+// languages, where reading/producing the script isn't a distinct skill.
+export interface VocabDeckConfig {
+  dual_direction_cards?: boolean;
+  needs_transliteration?: boolean;
+  transliteration_label?: string;
+  production_gate?: {
+    min_successful_recognition_reviews?: number;
+    min_days_since_note_added?: number;
+  };
 }
 
 export interface VocabularyExample {

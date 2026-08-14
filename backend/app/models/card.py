@@ -3,10 +3,11 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, CreatedAtMixin, UUIDPkMixin
 from app.models.enums import CardDirection, CardState, pg_enum
+from app.models.vocabulary import VocabularyItem
 
 
 class Card(UUIDPkMixin, CreatedAtMixin, Base):
@@ -29,6 +30,11 @@ class Card(UUIDPkMixin, CreatedAtMixin, Base):
     vocabulary_item_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("vocabulary_items.id"), nullable=True, index=True
     )
+    # Loaded via selectinload wherever a route returns cards to the frontend
+    # (see api/routes/cards.py) -- Flashcard.tsx has no other path from a
+    # card to its vocabulary text, and a due-queue response can hold ~100+
+    # cards, so this avoids an N+1 fetch-per-card round trip.
+    vocabulary_item: Mapped[VocabularyItem | None] = relationship()
 
     # Only needed for cards not derived from a VocabularyItem, or to override
     # the shared vocab entry's text for this specific card.
