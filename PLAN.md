@@ -38,17 +38,17 @@ Living project plan and status log. Read at the start of every session; update C
   API.
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
   Gemini default), example generation, free-text grading, journal
-  correction + auto vocab extraction, known-vocabulary system — done so
-  far. Revised remaining slice order (2026-08-14, see Decisions Log):
-  reading passage generation from known vocab, paste-in content with
-  unknown-word flagging, coverage-gap analysis, adaptive weak-point
-  targeting (last — needs real attempt data from the earlier slices).
-  Generic auto-card-generation dropped as its own slice (journal
-  correction/paste-in flagging cover it with real context attached);
-  mnemonics folded into the existing example-generation endpoint as an
-  extra field rather than a separate slice. Also: the Vocabulary course
-  category (Greetings/Family) is being retired in favor of a Reading
-  category — see the same decision log entry.
+  correction + auto vocab extraction, known-vocabulary system, reading
+  passage generation — done so far. Revised remaining slice order
+  (2026-08-14, see Decisions Log): paste-in content with unknown-word
+  flagging, coverage-gap analysis, adaptive weak-point targeting (last —
+  needs real attempt data from the earlier slices). Generic
+  auto-card-generation dropped as its own slice (journal correction/
+  paste-in flagging cover it with real context attached); mnemonics folded
+  into the existing example-generation endpoint as an extra field rather
+  than a separate slice. Also: the Vocabulary course category
+  (Greetings/Family) was retired in favor of a Reading category — see the
+  same decision log entry.
 - [ ] **Phase 6 — Conversational practice partner**: chat UI, roleplay
   scenarios constrained to known vocabulary, in-context correction.
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
@@ -1353,10 +1353,110 @@ verification (`Spanish P2`) — correctly showed no placement-check entry
 point at all, since its language code doesn't match the bundled data's
 lookup key, the intended graceful-degradation behavior rather than a bug.
 
+**2026-08-14 — Reading passage generation (Phase 5), complete and verified
+end-to-end across Spanish and Chinese.** The next slice per the revised
+order, and the one that finally executes the other half of the same-day
+"Vocabulary → Reading" decision: retiring the Vocabulary practice category
+in favor of Reading. Designed together first (plan mode), same pattern as
+every other Phase 4/5 feature.
+
+**Known-vocabulary blending, implemented as designed**: new
+`app/services/known_vocabulary_lookup.py::get_known_words_for_passage`
+unions two signals — `Card`s graduated to `REVIEW` state (ground truth,
+always included in full, no new tuned threshold) and a random sample of
+`KnownVocabularyItem` rows (the placement-check/manual estimate, capped at
+300 to keep prompt size reasonable and give regenerated passages variety
+instead of always drawing the same common words).
+
+**Schema**: new `reading_passages` (`course_id`, `target_text`, `base_text`,
+`new_vocabulary` JSONB, `questions` JSONB — each question stores a
+server-only `reference_answer` never sent to the client) and
+`reading_passage_attempts` (field names deliberately mirror
+`UserExerciseAttempt`'s `is_correct`/`llm_feedback`, for the later adaptive
+weak-point-targeting slice). Confirmed via exploration that `Skill`/
+`LessonExercise` are pre-authored, identical-for-every-user, course-shared
+content — reading passages are per-course, LLM-generated, and accumulate
+many-per-course over time, so they're structurally closer to `JournalEntry`
+(`POST`-to-generate/`GET`-to-list) than to either the `Skill` shape or the
+`VocabularyExample`/`VocabularyAudio` single-cached-resource GET pattern
+(neither existing cache table's uniqueness constraint fits "many per
+course, generated on demand").
+
+**Comprehension questions are free-text, LLM-graded** (confirmed with the
+user over multiple-choice or no-grading-this-slice alternatives) — matches
+this project's stated retrieval-practice preference. New
+`app/services/reading_passage_generation.py` (one `model_tier="reasoning"`
+call producing the passage, its translation, self-reported new vocabulary,
+and 3 questions with reference answers in one structured response, mirroring
+`journal_correction.py`'s multi-field-with-nested-lists shape) and
+`app/services/reading_comprehension_grading.py` (mirrors
+`free_text_grading.py` field-for-field). New `app/api/routes/reading_passages.py`:
+`POST ""` generates+persists, `GET ""` lists course-scoped/most-recent-first,
+`POST "/{id}/attempt"` grades+persists (400 on an out-of-range
+`question_index`).
+
+**Content**: `seed.py`'s `practice_categories` — Spanish/Dutch's `"vocabulary"`
+entry replaced with `{"slug": "reading", "kind": "reading_passage"}`; the old
+Greetings/Family `Skill` rows left untouched (no `ondelete=CASCADE`
+anywhere in this schema), just unreferenced by the UI, fully reversible.
+**Chinese also gained a `practice_categories` key for the first time** —
+just the one Reading entry, since reading passages need zero pre-authored
+lesson content, a genuine test of "language-agnostic by design" for a
+language that has literally no `Skill` rows in this app.
+
+**Frontend**: `/course/category/[categoryKey]/page.tsx` gained a third
+`kind` branch (`"reading_passage"`) — a generate button + a list of past
+passages, no `Skill`/`useLessonExercises` involvement. The reading view
+itself, `/reading-passages/[passageId]/page.tsx`, is a new **top-level**
+route (not nested under `/course/category/...`) — Next.js can't have two
+differently-named dynamic segments (`[tenseKey]` already exists at that
+path position) at the same position, and the existing precedent for a
+session-style leaf page (`/skills/[skillId]/lesson`) is already a
+standalone top-level route reading `useBootstrapContext()` directly rather
+than nesting under `/course`. New vocabulary → deck reuses the exact
+`VocabSuggestionRow` pattern (`NewVocabularyRow.tsx`, `useQuickAddCard()`
+wired one level up in the page) — same derive-"added"-from-the-real-
+vocabulary-list approach the duplicate-vocab bug taught this project to use
+instead of local-only state. Comprehension questions render independently
+(not a sequential drilled queue like the lesson session) since they're
+short-answer questions a reader tackles at their own pace.
+
+**Verified**: 17 new backend tests (134 total: 4 known-vocabulary-lookup
+integration, 8 generation/grading unit, 5 route integration — one hit and
+fixed the same `now()`-is-transaction-start-time-stable ordering gotcha
+`test_journal_entries.py` hit before, worked around the same way, inserting
+rows directly via `db_session` with explicit distinct timestamps), `ruff`
+clean. 62 frontend tests (6 new `NewVocabularyRow` cases), `tsc`/`eslint`
+clean. **Live, against the real Gemini API, both Spanish and Chinese**:
+generated a real, natural Spanish passage about a stranger in a park from
+real known-vocabulary data, answered one comprehension question correctly
+and one deliberately wrong — grading was accurate both ways, with the
+wrong-answer feedback correctly quoting the passage's actual text back
+("dice que el desconocido 'lleva ropa verde', no azul"); added a
+new-vocabulary word to a deck and confirmed a real, immediately-"Added"
+`VocabularyItem`+`Card` in Postgres; generated a genuinely natural Chinese
+passage (market/restaurant story) using zero pre-authored `Skill` content
+in that course, confirming the architecture claim for real, not just in
+theory. **Hit real, transient Gemini 503 "high demand" errors on the
+reasoning-tier model during testing** (both languages, resolved on retry
+within roughly a minute) — confirmed not a bug by checking another
+reasoning-tier endpoint (`journal-entries`) succeeded immediately in
+between failed retries; consistent with this project's already-documented,
+accepted free-tier flakiness trade-off, not something this slice needs to
+handle specially.
+
 ## Current Status
 
 **As of 2026-08-14:**
 
+- Done: **Reading passage generation (Phase 5), complete and verified
+  end-to-end across Spanish and Chinese** — new `reading_passages`/
+  `reading_passage_attempts` tables, known-vocabulary blending (mastered
+  Cards + sampled `KnownVocabularyItem`s), free-text LLM-graded
+  comprehension questions, a new "Reading" practice category replacing
+  "Vocabulary" for Spanish/Dutch and newly added for Chinese (its first
+  practice content ever, needing zero pre-authored `Skill` rows) — see the
+  decision log entry just above for the full breakdown.
 - Done: **Known-vocabulary system (Phase 5), complete and verified
   end-to-end across Spanish, Chinese, and Dutch** — new `known_vocabulary_items`
   table, real frequency-band data (hermitdave/FrequencyWords for
@@ -1496,21 +1596,17 @@ lookup key, the intended graceful-degradation behavior rather than a bug.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: reading passage generation from known vocabulary, the next Phase 5
-  slice per the revised order (see the 2026-08-14 "Vocabulary → Reading"
-  decision entry) — needs its own content-model design pass first (the
-  `VocabularyExample`/`VocabularyAudio` get-or-generate-and-cache pattern
-  is the likely shape, not a reuse of `Skill`/`LessonExercise`).
-  Checkpoint with the user first per this project's per-slice cadence.
+- Next: paste-in content with unknown-word flagging, the next Phase 5 slice
+  per the revised order (see the 2026-08-14 "Vocabulary → Reading" decision
+  entry) — shares logic with reading-passage generation (known-vocabulary
+  lookup) but works the other direction: the user supplies arbitrary text,
+  the app flags which words aren't known yet, rather than the app
+  generating text from known words. Checkpoint with the user first per
+  this project's per-slice cadence.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
 
-- Reading passage generation (Phase 5) needs its own content-model design
-  pass when that slice starts — the get-or-generate-and-cache pattern from
-  `VocabularyExample`/`VocabularyAudio` is the likely shape, not a reuse
-  of `Skill`/`LessonExercise`. See the 2026-08-14 "Vocabulary → Reading"
-  decision log entry.
 - Coverage-gap analysis shares the known-vocabulary system's prerequisite
   (frequency-band data + known-words data) — don't schedule it before that
   work exists, even though it's cheap once it does.

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { SkillNode } from "@/components/course/SkillNode";
 import { useLessonExercises } from "@/hooks/useLessonExercises";
+import { useGenerateReadingPassage, useReadingPassages } from "@/hooks/useReadingPassages";
 import { useSkills } from "@/hooks/useSkills";
 import { useUserProgress } from "@/hooks/useUserProgress";
 import { listTenseMoodOptions } from "@/lib/practiceCategories";
@@ -33,6 +34,9 @@ export default function CategoryPage() {
     enabled: Boolean(conjugationSkillId),
   });
   const tenseMoodOptions = conjugationSkillId ? listTenseMoodOptions(exercises) : [];
+
+  const { data: passages = [] } = useReadingPassages(selectedCourseId);
+  const generatePassage = useGenerateReadingPassage();
 
   if (!category) {
     return <p className="text-ink-soft">Category not found.</p>;
@@ -66,6 +70,35 @@ export default function CategoryPage() {
             </Link>
           ))}
           {tenseMoodOptions.length === 0 && <p className="text-ink-soft">No tenses yet.</p>}
+        </section>
+      )}
+
+      {category.kind === "reading_passage" && (
+        <section className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => generatePassage.mutate(selectedCourseId)}
+            disabled={generatePassage.isPending}
+            className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
+          >
+            {generatePassage.isPending ? "Generating…" : "Generate a new passage"}
+          </button>
+          {generatePassage.isError && (
+            <p className="text-sm text-rating-again">Couldn&apos;t generate a passage. Try again.</p>
+          )}
+          {passages.map((passage) => (
+            <Link
+              key={passage.id}
+              href={`/reading-passages/${passage.id}`}
+              className="block border border-line bg-surface p-4 text-ink"
+            >
+              {passage.target_text.slice(0, 80)}
+              {passage.target_text.length > 80 ? "…" : ""}
+            </Link>
+          ))}
+          {passages.length === 0 && (
+            <p className="text-ink-soft">No passages yet — generate your first one above.</p>
+          )}
         </section>
       )}
     </div>

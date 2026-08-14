@@ -23,7 +23,7 @@ export interface PracticeCategory {
   slug: string;
   key: string | null;
   label: string;
-  kind: "skill_list" | "conjugation_drill";
+  kind: "skill_list" | "conjugation_drill" | "reading_passage";
 }
 
 export interface Language {
@@ -300,6 +300,49 @@ export interface JournalEntrySubmitPayload {
   user_id: string;
   course_id: string;
   text: string;
+}
+
+export interface NewVocabularyWord {
+  target_text: string;
+  base_text: string;
+}
+
+// Client-facing shape only -- the backend's stored `reference_answer` per
+// question is never sent to the frontend (see ReadingPassageQuestion in
+// backend/app/schemas/reading_passage.py).
+export interface ReadingPassageQuestion {
+  question_text: string;
+}
+
+export interface ReadingPassage {
+  id: string;
+  course_id: string;
+  target_text: string;
+  base_text: string;
+  new_vocabulary: NewVocabularyWord[];
+  questions: ReadingPassageQuestion[];
+  created_at: string;
+}
+
+export interface ReadingPassageGeneratePayload {
+  course_id: string;
+}
+
+export interface ReadingPassageAttemptSubmitPayload {
+  user_id: string;
+  question_index: number;
+  submitted_answer: string;
+}
+
+export interface ReadingPassageAttempt {
+  id: string;
+  user_id: string;
+  reading_passage_id: string;
+  question_index: number;
+  submitted_answer: string;
+  is_correct: boolean | null;
+  llm_feedback: string | null;
+  created_at: string;
 }
 
 export type KnownVocabularySource = "placement_check" | "manual" | "promoted";

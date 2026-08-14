@@ -424,7 +424,14 @@ SPANISH_GRAMMAR_CONFIG = {
     # specifically because `key` can be None, which can't go in a URL),
     # `kind` is the small closed set the frontend switches UI shape on.
     "practice_categories": [
-        {"slug": "vocabulary", "key": None, "label": "Vocabulary", "kind": "skill_list"},
+        # "vocabulary" retired 2026-08-14 in favor of "reading" -- see
+        # PLAN.md's "Vocabulary -> Reading" decision: it duplicated the
+        # Anki vocab decks with a weaker (non-SRS) mechanism, and reading
+        # passages are generated per-course from known vocabulary rather
+        # than pre-authored, so this category needs no matching Skill at
+        # all (key stays None). The old Greetings/Family Skill rows are
+        # left in place, just unreferenced by the UI -- fully reversible.
+        {"slug": "reading", "key": None, "label": "Reading", "kind": "reading_passage"},
         {
             "slug": "verb-conjugation",
             "key": "spanish-verb-conjugation",
@@ -595,7 +602,9 @@ DUTCH_GRAMMAR_CONFIG = {
     # productive in modern usage, not a gap in the app (2026-08-14
     # decision, on request).
     "practice_categories": [
-        {"slug": "vocabulary", "key": None, "label": "Vocabulary", "kind": "skill_list"},
+        # "vocabulary" -> "reading" retired the same way as Spanish's --
+        # see that config's comment just above for the full reasoning.
+        {"slug": "reading", "key": None, "label": "Reading", "kind": "reading_passage"},
         {
             "slug": "verb-conjugation",
             "key": "dutch-verb-conjugation",
@@ -607,11 +616,22 @@ DUTCH_GRAMMAR_CONFIG = {
 
 
 CHINESE_GRAMMAR_CONFIG = {
-    # No "conjugation"/"practice_categories" keys -- Chinese has no lesson
-    # content in this app (yet); it exists specifically to prove the
-    # Anki-deck feature's recognition/production split and transliteration
-    # handling generalize to a language that actually needs them, per the
-    # user's own spec (2026-08-14 "Anki-style vocab decks" decision).
+    # No "conjugation" key -- Chinese has no pre-authored lesson content in
+    # this app (yet); it exists specifically to prove the Anki-deck
+    # feature's recognition/production split and transliteration handling
+    # generalize to a language that actually needs them, per the user's
+    # own spec (2026-08-14 "Anki-style vocab decks" decision).
+    #
+    # "practice_categories" DOES get an entry, though (2026-08-14, "reading
+    # passage generation") -- reading passages are generated per-course
+    # from known vocabulary, not pre-authored Skill/LessonExercise content,
+    # so they need zero lesson-content investment to work. This is the
+    # first practice content Chinese gets in this app, and specifically
+    # tests that the reading-passage feature generalizes to a language
+    # with no Skills at all.
+    "practice_categories": [
+        {"slug": "reading", "key": None, "label": "Reading", "kind": "reading_passage"},
+    ],
     "vocab_deck": {
         "dual_direction_cards": True,
         "needs_transliteration": True,

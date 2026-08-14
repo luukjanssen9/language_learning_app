@@ -10,6 +10,7 @@ from app.models.journal_entry import JournalEntry
 from app.models.known_vocabulary import KnownVocabularyItem
 from app.models.language import Language
 from app.models.lesson_exercise import LessonExercise, LessonExerciseVocabulary
+from app.models.reading_passage import ReadingPassage, ReadingPassageAttempt
 from app.models.review_log import ReviewLog
 from app.models.skill import Skill
 from app.models.user import User
@@ -30,6 +31,8 @@ __all__ = [
     "Language",
     "LessonExercise",
     "LessonExerciseVocabulary",
+    "ReadingPassage",
+    "ReadingPassageAttempt",
     "ReviewLog",
     "Skill",
     "User",

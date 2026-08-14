@@ -8,6 +8,7 @@ from app.api.routes import (
     known_vocabulary,
     languages,
     lesson_exercises,
+    reading_passages,
     review_logs,
     skills,
     user_courses,
@@ -27,6 +28,7 @@ api_router.include_router(vocabulary.router)
 api_router.include_router(cards.router)
 api_router.include_router(journal_entries.router)
 api_router.include_router(known_vocabulary.router)
+api_router.include_router(reading_passages.router)
 api_router.include_router(skills.router)
 api_router.include_router(lesson_exercises.router)
 api_router.include_router(review_logs.router)
