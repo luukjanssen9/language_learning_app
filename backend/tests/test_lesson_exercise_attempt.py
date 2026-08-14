@@ -2,6 +2,10 @@ import uuid
 
 from httpx import AsyncClient
 
+from app.main import app
+from app.services.free_text_grading import FreeTextGradeResult
+from app.services.llm import get_llm_provider
+
 CONJUGATION_GRAMMAR_CONFIG = {
     "conjugation": {
         "regular_endings": {
@@ -223,3 +227,70 @@ async def test_second_attempt_on_same_skill_accumulates_progress(client: AsyncCl
     assert body["progress"]["times_attempted"] == 2
     assert body["progress"]["times_correct"] == 1
     assert body["progress"]["mastery_level"] == 0.5
+
+
+class FakeLLMProvider:
+    """Overrides `get_llm_provider` for FREE_TEXT attempts, same
+    dependency-override mechanism `test_tts.py` uses for `get_tts_client`.
+    """
+
+    def __init__(self, result: FreeTextGradeResult) -> None:
+        self.result = result
+
+    async def generate_structured(self, prompt, response_model, model_tier="fast"):
+        return self.result
+
+
+async def test_free_text_translation_style_correct_answer(client: AsyncClient):
+    skill = await _make_skill(client)
+    exercise = await _make_exercise(
+        client,
+        skill["id"],
+        "free_text",
+        {"source_text": "Thank you very much for your help."},
+    )
+    app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
+        FreeTextGradeResult(is_correct=True, feedback="Nicely done.")
+    )
+
+    resp = await client.post(
+        f"/api/lesson-exercises/{exercise['id']}/attempt",
+        json={
+            "user_id": skill["_user_id"],
+            "submitted_answer": {"text": "Muchas gracias por tu ayuda."},
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["attempt"]["is_correct"] is True
+    assert body["attempt"]["llm_feedback"] == "Nicely done."
+    assert body["correct_answer"] is None
+    assert body["progress"]["times_correct"] == 1
+
+
+async def test_free_text_open_ended_incorrect_answer(client: AsyncClient):
+    skill = await _make_skill(client)
+    exercise = await _make_exercise(
+        client,
+        skill["id"],
+        "free_text",
+        {"question_text": "¿Cómo te llamas?"},
+    )
+    app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
+        FreeTextGradeResult(
+            is_correct=False, feedback="That doesn't answer the question asked."
+        )
+    )
+
+    resp = await client.post(
+        f"/api/lesson-exercises/{exercise['id']}/attempt",
+        json={"user_id": skill["_user_id"], "submitted_answer": {"text": "Hace sol hoy."}},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["attempt"]["is_correct"] is False
+    assert body["attempt"]["llm_feedback"] == "That doesn't answer the question asked."
+    assert body["progress"]["times_attempted"] == 1
+    assert body["progress"]["times_correct"] == 0

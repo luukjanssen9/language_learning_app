@@ -42,7 +42,9 @@ export default function LessonSessionPage() {
 
   const [introDone, setIntroDone] = useState(false);
   const [index, setIndex] = useState(0);
-  const [feedback, setFeedback] = useState<"correct" | "incorrect" | null>(null);
+  const [feedback, setFeedback] = useState<
+    { status: "correct" | "incorrect"; text: string | null } | null
+  >(null);
   const [saveError, setSaveError] = useState(false);
 
   const total = queue.length;
@@ -58,7 +60,11 @@ export default function LessonSessionPage() {
           payload: { user_id: userId, submitted_answer: submittedAnswer },
         },
         {
-          onSuccess: (data) => setFeedback(data.attempt.is_correct ? "correct" : "incorrect"),
+          onSuccess: (data) =>
+            setFeedback({
+              status: data.attempt.is_correct ? "correct" : "incorrect",
+              text: data.attempt.llm_feedback,
+            }),
           onError: () => setSaveError(true),
         },
       );
@@ -133,11 +139,16 @@ export default function LessonSessionPage() {
           <>
             <p
               className={
-                feedback === "correct" ? "text-2xl text-rating-good" : "text-2xl text-rating-again"
+                feedback.status === "correct"
+                  ? "text-2xl text-rating-good"
+                  : "text-2xl text-rating-again"
               }
             >
-              {feedback === "correct" ? "Correct!" : "Not quite"}
+              {feedback.status === "correct" ? "Correct!" : "Not quite"}
             </p>
+            {feedback.text && (
+              <p className="max-w-sm text-center text-sm text-ink-soft">{feedback.text}</p>
+            )}
             <button
               type="button"
               onClick={handleContinue}

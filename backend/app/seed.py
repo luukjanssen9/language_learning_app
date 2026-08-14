@@ -874,6 +874,20 @@ async def _seed_greetings_skill(session, course: Course) -> Skill:
         {"sentence": "Muchas ___ por tu ayuda.", "correct_answer": "gracias"},
         2, vocab=gracias,
     )
+    # FREE_TEXT: LLM-graded, not exact-match, since a full sentence has
+    # more than one natural correct phrasing (unlike TRANSLATION above,
+    # fine for a single word) -- see PLAN.md's 2026-08-14 "Free-text
+    # grading" decision. Two sub-kinds, distinguished by prompt shape.
+    await _add_exercise(
+        session, skill, ExerciseType.FREE_TEXT,
+        {"source_text": "Thank you very much for your help."},
+        3,
+    )
+    await _add_exercise(
+        session, skill, ExerciseType.FREE_TEXT,
+        {"question_text": "¿Cómo te llamas?"},
+        4,
+    )
     return skill
 
 

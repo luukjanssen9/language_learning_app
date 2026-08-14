@@ -12,6 +12,7 @@ interface ExerciseCardProps {
 interface TextPromptConfig {
   label: string;
   answerKey: "text" | "answer";
+  multiline?: boolean;
 }
 
 // Front is always the question, back is always the correct-answer check --
@@ -28,6 +29,15 @@ function textPromptConfig(exercise: LessonExercise): TextPromptConfig | null {
         label: `Conjugate "${exercise.prompt.infinitive}" (${exercise.prompt.tense}, ${exercise.prompt.mood}, ${exercise.prompt.pronoun})`,
         answerKey: "answer",
       };
+    case "free_text": {
+      // Two prompt sub-kinds, distinguished by which field is present --
+      // see PLAN.md's 2026-08-14 "Free-text grading" decision.
+      const label =
+        "source_text" in exercise.prompt
+          ? `Translate: "${exercise.prompt.source_text}"`
+          : String(exercise.prompt.question_text);
+      return { label, answerKey: "text", multiline: true };
+    }
     default:
       return null;
   }
@@ -75,19 +85,32 @@ export function ExerciseCard({ exercise, onSubmit, disabled }: ExerciseCardProps
   return (
     <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
       <p className="text-center font-display text-xl text-ink">{config.label}</p>
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        disabled={disabled}
-        autoFocus
-        className="rounded-md border border-line bg-bg px-3 py-2 text-center text-ink"
-      />
+      {config.multiline ? (
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          disabled={disabled}
+          autoFocus
+          rows={3}
+          className="rounded-md border border-line bg-bg px-3 py-2 text-ink"
+        />
+      ) : (
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          disabled={disabled}
+          autoFocus
+          className="rounded-md border border-line bg-bg px-3 py-2 text-center text-ink"
+        />
+      )}
       <button
         type="submit"
         disabled={disabled}
         className="self-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
       >
-        Check
+        {/* Grading a free-text answer is a real LLM call, unlike the
+            instant local checks every other exercise type gets. */}
+        {disabled && exercise.exercise_type === "free_text" ? "Grading…" : "Check"}
       </button>
     </form>
   );

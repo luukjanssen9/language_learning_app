@@ -26,6 +26,8 @@ from app.schemas.user_exercise_attempt import (
 )
 from app.schemas.user_progress import UserProgressRead
 from app.services.exercise_grading import get_correct_answer, grade_attempt
+from app.services.free_text_grading import grade_free_text_attempt
+from app.services.llm import LLMProvider, get_llm_provider
 
 router = APIRouter(prefix="/lesson-exercises", tags=["lesson-exercises"])
 
@@ -85,6 +87,7 @@ async def submit_lesson_exercise_attempt(
     exercise_id: uuid.UUID,
     payload: UserExerciseAttemptSubmit,
     db: AsyncSession = Depends(get_db),
+    llm: LLMProvider = Depends(get_llm_provider),
 ) -> LessonExerciseAttemptResponse:
     """Grades the answer, logs the attempt, and upserts the skill's
     `UserProgress` -- same overall shape as `POST /cards/{id}/review`
@@ -95,16 +98,33 @@ async def submit_lesson_exercise_attempt(
     """
     exercise = await get_or_404(db, LessonExercise, exercise_id)
 
-    # grammar_config is only needed to grade CONJUGATION exercises -- skip
-    # the extra lookups for the (much more common) other exercise types.
+    # grammar_config is only needed to grade CONJUGATION exercises, and
+    # language names only to grade FREE_TEXT ones -- skip the extra
+    # lookups for the (much more common) other exercise types.
     grammar_config: dict | None = None
+    llm_feedback: str | None = None
     if exercise.exercise_type == ExerciseType.CONJUGATION:
         skill = await get_or_404(db, Skill, exercise.skill_id)
         course = await get_or_404(db, Course, skill.course_id)
         target_language = await get_or_404(db, Language, course.target_language_id)
         grammar_config = target_language.grammar_config
 
-    is_correct = grade_attempt(exercise, payload.submitted_answer, grammar_config)
+    if exercise.exercise_type == ExerciseType.FREE_TEXT:
+        skill = await get_or_404(db, Skill, exercise.skill_id)
+        course = await get_or_404(db, Course, skill.course_id)
+        target_language = await get_or_404(db, Language, course.target_language_id)
+        base_language = await get_or_404(db, Language, course.base_language_id)
+        result = await grade_free_text_attempt(
+            llm,
+            target_language.name,
+            base_language.name,
+            exercise.prompt,
+            payload.submitted_answer.get("text", ""),
+        )
+        is_correct = result.is_correct
+        llm_feedback = result.feedback
+    else:
+        is_correct = grade_attempt(exercise, payload.submitted_answer, grammar_config)
     correct_answer = get_correct_answer(exercise, grammar_config)
 
     attempt = UserExerciseAttempt(
@@ -112,6 +132,7 @@ async def submit_lesson_exercise_attempt(
         exercise_id=exercise.id,
         submitted_answer=payload.submitted_answer,
         is_correct=is_correct,
+        llm_feedback=llm_feedback,
     )
     db.add(attempt)
 

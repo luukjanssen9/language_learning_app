@@ -1007,10 +1007,60 @@ confirmed the full round trip (new-word generation + persistence) works
 correctly, isolating the audio-hardware gap as an artifact of the test
 environment, not the app.
 
+**2026-08-14 — Free-text grading (Phase 5, slice 2), complete and
+verified end-to-end.** Closed a gap that had existed since Phase 1:
+`ExerciseType.FREE_TEXT` and `UserExerciseAttempt.llm_feedback` were
+already in the schema ("not graded here... Phase 5's LLM territory"),
+but nothing had ever populated them — no FREE_TEXT exercise was seeded,
+and the frontend fell through to "This exercise type isn't supported
+yet." User decision: support two prompt sub-kinds under one FREE_TEXT
+type, distinguished by which prompt field is present — flexible
+sentence translation (`source_text`, any natural phrasing accepted,
+unlike `TRANSLATION`'s exact-match) and open-ended short answer
+(`question_text`, tests production, not just translation). New
+`app/services/free_text_grading.py` (mirrors `sentence_generation.py`'s
+shape), wired into `submit_lesson_exercise_attempt` alongside the
+existing `CONJUGATION` branch. First real caller of the LLM provider's
+`"reasoning"` tier (every other call site so far used `"fast"`) —
+judging correctness fits the stronger model better than generating
+example sentences did; flagged against PLAN.md's known tight
+Gemini-free-tier-rate-limit issue since grading isn't cacheable the way
+example generation is, but not a problem in practice at this app's
+scale. Two sample exercises seeded into the Spanish Greetings skill (one
+of each sub-kind). Frontend: `ExerciseCard.tsx` gained a `free_text` case
+rendering a `<textarea>` instead of the single-line `<input>` every
+other typed exercise gets, and a "Grading…" button label while the LLM
+call is in flight; the lesson session page's feedback state — which had
+carried only "correct"/"incorrect" since Phase 4, despite the response
+schema having had `llm_feedback` available all along — now surfaces the
+LLM's actual feedback text under the headline.
+
+Verified live against the real Gemini API (not just fakes): submitted a
+correct and an incorrect answer to both seeded exercises through actual
+HTTP requests, confirming accurate grading and genuinely useful,
+specific feedback text both ways (e.g. correctly identifying a wrong
+answer as meaning "It is sunny today" instead of introducing yourself,
+and naming the right phrase to use instead). Chased down what looked
+like a UTF-8 mojibake bug in one response (`¡` rendering as two garbled
+characters) — traced it to `python -m json.tool`'s stdin decoding on
+this Windows/Git-Bash setup, not the app; confirmed by reading the same
+response's raw bytes directly and checking the persisted value straight
+from Postgres, both correct. Full session played through in the browser
+end to end (multiple-choice → translation → fill-in-blank → both new
+FREE_TEXT exercises), confirming the textarea, "Grading…" label, and
+feedback text all render correctly and `UserProgress.mastery_level`
+updates accurately for every exercise type in one queue. 99 backend
+tests (9 new) and 36 frontend tests (5 new) pass; `ruff`/`tsc`/`eslint`
+all clean.
+
 ## Current Status
 
 **As of 2026-08-14:**
 
+- Done: **Free-text grading (Phase 5, slice 2), complete and verified
+  end-to-end** (LLM-graded FREE_TEXT exercises, both translation-style
+  and open-ended, real feedback text surfaced in the UI) — see the
+  decision log entry just above for the full breakdown.
 - Done: **TTS audio for vocab cards, complete and verified end-to-end**
   (Google Cloud Text-to-Speech, real Spanish + Chinese voices, cached in
   Postgres) — see the decision log entry just above for the full
@@ -1132,12 +1182,10 @@ environment, not the app.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: design TTS audio for vocab cards together first (flagged, not
-  started — see the decision log entry above; check whether Gemini's
-  audio-out capability covers this before reaching for a separate TTS
-  API), then continue Phase 5 with the next slice — likely free-text
-  grading, per the sub-feature list below — checkpoint with the user
-  first per this project's per-slice cadence.
+- Next: continue Phase 5 with the next slice — auto-card-generation,
+  mnemonics, or adaptive weak-point targeting (see the sub-feature list
+  below) — checkpoint with the user first per this project's per-slice
+  cadence, same as TTS and free-text grading were.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
