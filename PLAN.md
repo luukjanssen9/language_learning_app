@@ -897,6 +897,45 @@ would have put 谢谢 before 你好); Spanish Vocab sorts its three notes
 alphabetically by the plain Latin text, unaffected by the
 transliteration fallback since it has none.
 
+**2026-08-14 — Second vocab-seed batch: 15 more Spanish notes, 12 more
+Chinese notes.** User-authored (not this session's own content, unlike
+the first three-per-language batch), provided as two JSON arrays with
+field names checked against the real `VocabularyItemBase` schema
+(`backend/app/schemas/vocabulary.py`) before importing — matched
+exactly (`target_text`, `base_text`, `source`, `example_sentence`,
+`example_sentence_translation`, `tags`, `attributes.transliteration`),
+no field-name drift to reconcile. Imported by appending to the existing
+`SPANISH_VOCAB_NOTES`/`CHINESE_VOCAB_NOTES` lists in `seed.py` — one
+canonical list per language, not a second parallel constant, same as
+every other content addition in this file — so `_seed_spanish_vocab_
+notes`/`_seed_chinese_vocab_notes` and their shared `_seed_note` →
+`build_cards_for_note` path needed zero changes. Chinese batch
+deliberately excludes the four already-seeded words, confirmed no
+overlap before importing.
+
+Verified: re-ran the seed script twice, confirming idempotency (no
+duplicate rows on the second run) — 18 Spanish notes × 1 card = 18
+Spanish cards, 16 Chinese notes × 2 cards = 32 Chinese cards, both
+counts confirmed directly in Postgres. `ruff`/`pytest` (88, unchanged —
+seed content isn't itself test-covered) clean. Live in the browser: all
+16 Chinese words show correctly with the new production cards starting
+"Locked" (not "New") and recognition cards "New", confirming
+`build_cards_for_note`'s dual-direction generation fired correctly for
+every new note; the alphabetical sort correctly orders all 16 by pinyin
+including the new entries (dìfang → duōshǎo → háishi → ... → zàijiàn);
+all 18 Spanish notes show as single Recognition-only cards, alphabetical
+by the plain Latin text.
+
+**Also flagged (not started): TTS audio for vocab cards**, mainly for
+Chinese tones. Proposed to mirror the `VocabularyExample` get-or-generate
+cache pattern (an `audio_url` field or small cache table, generated once
+via a TTS provider, served from cache after) — worth checking whether
+Gemini's audio-out capability covers this before adding a separate TTS
+API, so it could reuse the existing `LLMProvider` plumbing from Phase 5
+slice 1 rather than a parallel integration. To be designed together
+before building, same as the vocab-deck feature and the Phase 4
+conjugation feature were.
+
 ## Current Status
 
 **As of 2026-08-14:**
@@ -905,8 +944,9 @@ transliteration fallback since it has none.
   cards, quick-add, Chinese as a third language) complete and verified
   end-to-end**, including seven real bugs found and fixed live across
   the initial build and a follow-up round of user testing (two during
-  the build, five more from actually using it afterward) — see the two
-  decision log entries just above for the full breakdown.
+  the build, five more from actually using it afterward), plus a
+  second, larger content batch (15 more Spanish notes, 12 more Chinese)
+  — see the decision log entries just above for the full breakdown.
 - Done: **Phase 5, slice 1 (LLM service layer + example-sentence
   generation) complete and verified end-to-end**, including live against
   the real Gemini API — see the decision log entry above for the
@@ -1016,9 +1056,12 @@ transliteration fallback since it has none.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: continue Phase 5 with the next slice — likely free-text grading,
-  per the sub-feature list below — checkpoint with the user first per
-  this project's per-slice cadence.
+- Next: design TTS audio for vocab cards together first (flagged, not
+  started — see the decision log entry above; check whether Gemini's
+  audio-out capability covers this before reaching for a separate TTS
+  API), then continue Phase 5 with the next slice — likely free-text
+  grading, per the sub-feature list below — checkpoint with the user
+  first per this project's per-slice cadence.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
