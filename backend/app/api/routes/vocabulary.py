@@ -6,8 +6,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.crud_utils import get_or_404
 from app.database import get_db
+from app.models.course import Course
+from app.models.language import Language
 from app.models.vocabulary import VocabularyItem
-from app.schemas.vocabulary import VocabularyItemCreate, VocabularyItemRead, VocabularyItemUpdate
+from app.models.vocabulary_example import VocabularyExample
+from app.schemas.vocabulary import (
+    VocabularyExampleRead,
+    VocabularyItemCreate,
+    VocabularyItemRead,
+    VocabularyItemUpdate,
+)
+from app.services.llm import LLMProvider, get_llm_provider
+from app.services.sentence_generation import generate_example_sentences
 
 router = APIRouter(prefix="/vocabulary-items", tags=["vocabulary"])
 
@@ -24,8 +34,13 @@ async def create_vocabulary_item(
 
 
 @router.get("", response_model=list[VocabularyItemRead])
-async def list_vocabulary_items(db: AsyncSession = Depends(get_db)) -> list[VocabularyItem]:
-    result = await db.execute(select(VocabularyItem).order_by(VocabularyItem.target_text))
+async def list_vocabulary_items(
+    course_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+) -> list[VocabularyItem]:
+    query = select(VocabularyItem).order_by(VocabularyItem.target_text)
+    if course_id is not None:
+        query = query.where(VocabularyItem.course_id == course_id)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
@@ -53,3 +68,50 @@ async def delete_vocabulary_item(item_id: uuid.UUID, db: AsyncSession = Depends(
     item = await get_or_404(db, VocabularyItem, item_id)
     await db.delete(item)
     await db.commit()
+
+
+@router.get("/{item_id}/examples", response_model=list[VocabularyExampleRead])
+async def get_vocabulary_item_examples(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    llm: LLMProvider = Depends(get_llm_provider),
+) -> list[VocabularyExample]:
+    """Get-or-generate: returns cached examples if any exist for this word,
+    otherwise generates them via the LLM layer and persists the result --
+    so a given vocabulary item only ever costs one real LLM call across
+    its whole lifetime, not one per page view (see `VocabularyExample`'s
+    docstring for why that matters on Gemini's free tier).
+    """
+    item = await get_or_404(db, VocabularyItem, item_id)
+
+    result = await db.execute(
+        select(VocabularyExample).where(VocabularyExample.vocabulary_item_id == item_id)
+    )
+    existing = list(result.scalars().all())
+    if existing:
+        return existing
+
+    course = await get_or_404(db, Course, item.course_id)
+    target_language = await get_or_404(db, Language, course.target_language_id)
+    base_language = await get_or_404(db, Language, course.base_language_id)
+
+    generated = await generate_example_sentences(
+        llm,
+        target_language_name=target_language.name,
+        base_language_name=base_language.name,
+        target_text=item.target_text,
+        part_of_speech=item.part_of_speech,
+    )
+    examples = [
+        VocabularyExample(
+            vocabulary_item_id=item.id,
+            target_text=example.target_text,
+            base_text=example.base_text,
+        )
+        for example in generated
+    ]
+    db.add_all(examples)
+    await db.commit()
+    for example in examples:
+        await db.refresh(example)
+    return examples

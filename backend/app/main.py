@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.routes import api_router
 from app.config import settings
+from app.services.llm.base import LLMError
 
 app = FastAPI(title="Language App API", version="0.1.0")
 
@@ -29,6 +30,14 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
         content={
             "detail": "Conflicting or invalid reference (duplicate value or bad foreign key)."
         },
+    )
+
+
+@app.exception_handler(LLMError)
+async def llm_error_handler(request: Request, exc: LLMError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"detail": f"LLM provider error: {exc}"},
     )
 
 

@@ -20,4 +20,13 @@ export const queryKeys = {
   // silently refetch/reshuffle a session's in-progress exercise queue.
   exercises: (skillId: string) => ["skills", skillId, "exercises"] as const,
   progress: (userId: string) => ["user-progress", userId] as const,
+
+  vocabulary: (courseId: string) => ["vocabulary-items", courseId] as const,
+  // Generated content is immutable once cached (see the backend's
+  // get-or-generate `VocabularyExample` endpoint) -- nothing else in this
+  // app should ever invalidate it, so it doesn't need the same
+  // sibling-vs-nested care dueCards/exercises document above; it's simply
+  // its own leaf, keyed off the vocabulary item rather than the course.
+  vocabularyExamples: (vocabularyItemId: string) =>
+    ["vocabulary-items", vocabularyItemId, "examples"] as const,
 };

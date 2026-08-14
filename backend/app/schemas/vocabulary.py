@@ -28,3 +28,12 @@ class VocabularyItemRead(VocabularyItemBase):
 
     id: uuid.UUID
     created_at: datetime
+
+
+class VocabularyExampleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    target_text: str
+    base_text: str
+    created_at: datetime

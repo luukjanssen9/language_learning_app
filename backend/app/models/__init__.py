@@ -15,6 +15,7 @@ from app.models.user_course import UserCourse
 from app.models.user_exercise_attempt import UserExerciseAttempt
 from app.models.user_progress import UserProgress
 from app.models.vocabulary import VocabularyItem
+from app.models.vocabulary_example import VocabularyExample
 
 __all__ = [
     "Base",
@@ -30,5 +31,6 @@ __all__ = [
     "UserCourse",
     "UserExerciseAttempt",
     "UserProgress",
+    "VocabularyExample",
     "VocabularyItem",
 ]

@@ -576,10 +576,127 @@ Switched back to Spanish and confirmed nothing there changed: still 3
 categories including Subjunctive, still usted/ustedes labels. 70 backend
 tests pass (2 new), 12 frontend tests, `tsc`/eslint/ruff all clean.
 
+**2026-08-13 — Phase 5 started; slice 1 (LLM service layer + example-sentence
+generation) code-complete and test-verified; live verification blocked on a
+Gemini key.** Phase 5 bundles six sub-features (service layer, example
+generation, free-text grading, auto-card-gen, mnemonics, adaptive
+weak-point targeting) — too much for one pass, so it's being built one
+slice at a time with a checkpoint between each, same split as Phase 4's
+Stage A/B. This slice was chosen first because it exercises every piece
+the layer needs (templated prompts, structured-output parsing,
+per-language content) with the least extra product design, and because
+it's naturally cacheable — closing the standing "Gemini free-tier rate
+limits are tight" Known Issue immediately rather than deferring it again.
+
+**LLM layer**: new `app/services/llm/` package — `base.py` defines the
+`LLMProvider` Protocol (one method, `generate_structured(prompt,
+response_model, model_tier)`, always returning a parsed Pydantic
+instance — reused by every future Phase 5 sub-feature, not just this
+one) and `LLMError`; `gemini.py`'s `GeminiProvider` wraps the
+`google-genai` SDK's async client, using `response_mime_type`/
+`response_schema` for structured output; `__init__.py`'s
+`get_llm_provider()` is an `lru_cache` singleton reading
+`settings.llm_provider` (only "gemini" implemented — no Anthropic key
+yet), exposed as a FastAPI dependency so tests can override it with a
+fake, same mechanism as `get_db`. `LLMError` gets a global 502 handler in
+`main.py`, mirroring the existing `IntegrityError` → 409 handler. Model
+names re-verified via web search before building: `gemini-3.1-flash-lite`/
+`gemini-3.5-flash` are both still current, free-tier models — no config
+change needed from Phase 0's scaffolding.
+
+**Example-sentence feature**: new `VocabularyExample` table (cache —
+`vocabulary_item_id`, `target_text`, `base_text`); new
+`app/services/sentence_generation.py` (pure function, no DB access, same
+convention as `conjugation.py`/`exercise_grading.py`) builds a prompt
+entirely from arguments (target/base language name, word, part of
+speech — never hardcoded); new `GET /vocabulary-items/{id}/examples`
+get-or-generate endpoint: serves cached rows if any exist (a DB read, no
+LLM call), otherwise generates via the service, persists, and returns —
+so a vocabulary item only ever costs one real Gemini call across its
+whole lifetime.
+
+**Frontend gap found while planning**: cards created via the Phase 3 UI
+never link to a `VocabularyItem` (only `front_override`/`back_override`
+text), and the backend's existing `/vocabulary-items` CRUD API had never
+been wired to the frontend at all. Decided (user confirmed) not to force
+the feature onto the review flip card or deck card list, which have no
+path to real vocabulary content yet — instead built a new, minimal,
+read-only `/vocabulary` page (own `CourseProvider`-wrapped layout,
+mirroring `course/layout.tsx`'s exact pattern — course switcher works
+the same way there), listing a course's `VocabularyItem`s with a
+"Generate examples" button per row that lazily fetches
+(`useVocabularyExamples(id, enabled)`) only once expanded. This finally
+gives the vocabulary CRUD API its first real frontend use.
+
+**Verified**: 7 new backend tests (77 total) — pure unit tests for
+`sentence_generation.py` against a fake `LLMProvider` (including one
+proving the prompt is templated from arguments, not hardcoded, by
+asserting "Spanish" never appears in a Dutch-word prompt), plus
+integration tests for the endpoint via the same `app.dependency_overrides`
+mechanism used for `get_db`, covering first-request generation, cached
+second-request (asserting the fake's call count stays at 1), and 404 for
+a missing item. `ruff`/`pytest` clean without touching real Gemini quota.
+Frontend: `tsc`/`eslint`/`npm run test` (12/12) all clean.
+
+**Verified live against the real Gemini API**, once the user added a
+`GEMINI_API_KEY` to `backend/.env`. One deployment snag first: a plain
+`docker compose restart backend` does *not* reload `env_file` values for
+an already-created container (env vars are fixed at container-creation
+time) — the first attempt failed with `ValueError: No API key was
+provided`. Fixed with `docker compose up -d --force-recreate backend`,
+which actually recreates the container against the current `.env`.
+
+With a real key: generating examples for "hola" (Spanish) produced real,
+natural Spanish sentences with correct English glosses within a few
+seconds; reloading the page and re-expanding served the identical three
+sentences near-instantly, confirmed via a direct Postgres query showing
+exactly 3 `vocabulary_examples` rows for it (one generation batch, ever
+— the caching path works, not a fresh call per view). Switching to the
+Dutch course and generating for "hallo" produced genuinely Dutch
+sentences ("Hallo, hoe gaat het?", "Hallo, ik ben Sarah," etc. — not
+Spanish content), confirming the prompt's language-name templating
+actually drives generation rather than defaulting to whatever was built
+first.
+
+**One real transient failure, found live**: the first Dutch request took
+~24s and came back as a 502 (the `LLMError` handler firing on some
+Gemini-side hiccup — exact cause not captured, since the handler
+intentionally doesn't log the underlying exception, only returns it in
+the response body). A direct retry via `curl` succeeded normally and
+fast. Not treated as a bug to fix in this slice (no retry/timeout UX was
+in scope, and the free-tier's occasional flakiness is already an
+accepted, documented trade-off) — but worth remembering for later Phase
+5 slices that call the LLM synchronously in the request path: a slow
+provider call can block a request for 20+ seconds before failing, and
+this slice's plain "Generating examples…" text gives the user no sense
+of that, just an indefinite wait. Revisit if a future slice's feature
+makes that UX gap actually matter (e.g. free-text grading, which is
+also on the request's critical path).
+
+**A second real bug, found live by the user right after this**:
+`CourseSwitcher.tsx`'s `handleChange` unconditionally `router.push`ed to
+`/course` on every switch, regardless of which page the switcher was
+being used from — harmless while `/course` was the switcher's only
+consumer, but the new `/vocabulary` page reuses the same component, and
+switching courses there was bouncing back to `/course` instead of
+staying put. Fixed by reading the current top-level section from
+`usePathname()` and pushing to *that* section's root instead of a
+hardcoded one — generalizes correctly for any future section that also
+embeds `CourseSwitcher`. Re-verified live: switching courses on
+`/vocabulary` now stays on `/vocabulary` and shows the new course's
+words; switching on `/course/category/vocabulary` (a deep link that
+doesn't survive a course change) still correctly bounces back to
+`/course`'s own root, so the original fix that line existed for still
+works. `tsc`/`eslint` re-run clean after the change.
+
 ## Current Status
 
-**As of 2026-08-14:**
+**As of 2026-08-13:**
 
+- Done: **Phase 5, slice 1 (LLM service layer + example-sentence
+  generation) complete and verified end-to-end**, including live against
+  the real Gemini API — see the decision log entry just above for the
+  full breakdown.
 - Done: **v1 Dutch course added, complete and verified end-to-end** —
   second language, ahead of its originally-planned Phase 8 slot,
   specifically to test the "language-agnostic by design" claim for real.
@@ -685,9 +802,9 @@ tests pass (2 new), 12 frontend tests, `tsc`/eslint/ruff all clean.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: proceed to Phase 5 (core AI/NLP features) — LLM service layer
-  (provider-agnostic, Gemini default), example generation, free-text
-  grading, auto-card-generation, mnemonics, adaptive weak-point targeting.
+- Next: continue Phase 5 with the next slice — likely free-text grading,
+  per the sub-feature list below — checkpoint with the user first per
+  this project's per-slice cadence.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups

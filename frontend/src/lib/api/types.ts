@@ -206,3 +206,20 @@ export interface LessonExerciseAttemptResponse {
   // callers decide when to display it.
   correct_answer: string | null;
 }
+
+export interface VocabularyItem {
+  id: string;
+  course_id: string;
+  target_text: string;
+  base_text: string;
+  part_of_speech: string | null;
+  attributes: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface VocabularyExample {
+  id: string;
+  target_text: string;
+  base_text: string;
+  created_at: string;
+}
