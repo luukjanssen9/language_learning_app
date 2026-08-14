@@ -37,8 +37,18 @@ Living project plan and status log. Read at the start of every session; update C
   complete and verified end-to-end in a real browser against the live
   API.
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
-  Gemini default), example generation, free-text grading, auto-card-generation,
-  mnemonics, adaptive weak-point targeting.
+  Gemini default), example generation, free-text grading — done so far.
+  Revised remaining slice order (2026-08-14, see Decisions Log): journal
+  correction + auto vocab extraction, a known-vocabulary system
+  (prerequisite for what follows), reading passage generation from known
+  vocab, paste-in content with unknown-word flagging, coverage-gap
+  analysis, adaptive weak-point targeting (last — needs real attempt data
+  from the earlier slices). Generic auto-card-generation dropped as its
+  own slice (journal correction/paste-in flagging cover it with real
+  context attached); mnemonics folded into the existing example-generation
+  endpoint as an extra field rather than a separate slice. Also: the
+  Vocabulary course category (Greetings/Family) is being retired in favor
+  of a Reading category — see the same decision log entry.
 - [ ] **Phase 6 — Conversational practice partner**: chat UI, roleplay
   scenarios constrained to known vocabulary, in-context correction.
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
@@ -1053,6 +1063,109 @@ updates accurately for every exercise type in one queue. 99 backend
 tests (9 new) and 36 frontend tests (5 new) pass; `ruff`/`tsc`/`eslint`
 all clean.
 
+**2026-08-14 — Vocabulary → Reading, known-vocabulary system, and
+revised Phase 5 slice order (design decided, nothing built yet).** User
+observation that prompted this: the Vocabulary course category
+(Greetings/Family skills) already duplicated the Anki vocab decks with a
+weaker mechanism (no spaced repetition), and got strictly worse once
+free-text exercises landed on it — those exercises test recall of words
+never taught within the lesson itself, testing without teaching. Not an
+exercise-design problem; a wrong-content-slot problem.
+
+**Vocabulary category retired, replaced with Reading.** `practice_categories`
+(per-language config in `grammar_config`, rendered by
+`frontend/src/app/course/category/[categoryKey]/page.tsx`, dispatching
+entirely on a `kind` field — `"skill_list"` and `"conjugation_drill"`
+today) already supports genuinely different UI shapes per category, so a
+third `kind` for reading passages is a clean extension of an existing
+mechanism, not new architecture. What Reading actually needs underneath
+is not, though: every category today is pre-authored static
+`LessonExercise` content, but reading passages are meant to be generated
+on demand from the user's known vocabulary (i+1: known words plus a few
+new ones) — structurally closer to `VocabularyExample`/`VocabularyAudio`'s
+get-or-generate-and-cache pattern than to `Skill`/`LessonExercise`. That
+data model (a new cache table, e.g. `ReadingPassage`) is deferred to its
+own design pass when that slice actually starts, not solved now.
+Comprehension questions after a passage, however, are a clean, direct
+reuse of `app/services/free_text_grading.py` as built — same
+`LLMProvider` → structured-result shape, one more prompt branch.
+
+Retirement itself is config-only, not a data migration: remove the
+`{"slug": "vocabulary", ...}` entry from `SPANISH_GRAMMAR_CONFIG`'s
+`practice_categories` in `seed.py`. No model in this schema declares
+`ondelete=CASCADE` anywhere, so the underlying Greetings/Family `Skill`,
+`LessonExercise`, `UserProgress`, and `UserExerciseAttempt` rows
+(including today's live free-text attempts) are left completely alone —
+just unreferenced by the UI, not deleted, fully reversible. Note for
+later: that category currently matches via `key: None` (any skill with
+no `specialty_module`), the fallback bucket, not "Greetings/Family" by
+name specifically — a future untagged skill would need its own category
+after this change.
+
+**New known-vocabulary system** (prerequisite for reading passages,
+paste-in flagging, and coverage-gap analysis — not for journal
+correction, which has no dependency on it). Explicitly separate from
+Anki decks: decks are active-recall commitments (FSRS-scheduled,
+due-queue), known vocabulary is a passive inventory with no scheduling.
+Three pieces:
+- **New table, not a flag on `VocabularyItem`.** `VocabularyItem` is
+  course-scoped, requires a real `base_text` translation, and every row
+  in a course renders unfiltered on `/vocabulary`
+  (`useVocabularyItems`/`VocabularyItemRow.tsx`) plus is wired into
+  TTS/example-generation. Bulk-marking an estimated frequency band as
+  "known" would mean either creating hundreds of untranslated
+  `VocabularyItem` rows (breaks that page and everything hung off it) or
+  paying for an LLM translation per word for content the user explicitly
+  isn't choosing to study. A separate lightweight table (`course_id`,
+  `target_text`, `source: "placement_check" | "manual" | "promoted"`)
+  avoids both — no translation needed unless a word is later promoted.
+  Promotion (a one-way "add to deck" button, never automatic the other
+  direction) is the moment a real `VocabularyItem` + `Card` get created,
+  fetching a translation then, one word at a time — `Card.vocabulary_item_id`
+  is nullable but promoted words should go through the full
+  dual-direction/TTS/examples path, not `front_override`/`back_override`.
+- **Opt-in, adaptive placement check** — not gated behind onboarding
+  (there's no natural first-launch moment given the no-auth
+  single-user bootstrap, and auth isn't moving up from Phase 8 for this).
+  A standalone action (e.g. dashboard button), frequency-banded,
+  ~20-30 items, self-report recognized y/n, adapts which band to test
+  next. Needs no backend/LLM logic for the check itself — runs entirely
+  against a bundled per-language frequency-band dataset; only the final
+  "bulk-save the estimated band" step needs an endpoint. A true beginner
+  in a language just skips it (zero known vocab is already correct,
+  matches current behavior).
+- **Known-words page** — view/search/edit, separate from the deck pages,
+  with the promotion button from above.
+
+Content generation should blend both signals: the frequency-band
+estimate as a starting assumption, real known-words/deck data as ground
+truth that increasingly overrides it as usage accumulates — a query
+preference, not a migration/cutover point.
+
+Frequency-list sourcing (verify licensing at build time, not locked in
+now): avoid anything derived from Mark Davies' *Frequency Dictionary of
+Spanish* (commercial book, not freely redistributable as raw data) — the
+hermitdave/FrequencyWords dataset (OpenSubtitles-derived, openly
+licensed, covers both Spanish and Chinese) is the likely open option for
+Spanish. For Chinese, HSK level word lists (official, freely published,
+already banded 1-9) are a better fit than a raw frequency list —
+avoids inventing tier cutoffs. Different banding mechanism per language
+is a `grammar_config` data difference, not a code branch, consistent
+with this project's existing per-language-config convention.
+
+**Revised Phase 5 slice order** (see the Phase checklist entry above):
+journal correction + auto vocab extraction next (builds directly on the
+free-text-grading engine just shipped, no dependency on the
+known-vocabulary work above) → the known-vocabulary system above → reading
+passage generation → paste-in content with unknown-word flagging (shares
+logic with reading passages) → coverage-gap analysis vs. a CEFR/HSK-style
+list (shares the known-vocabulary prerequisite — "cheap" in effort, but
+not schedulable before that work exists) → adaptive weak-point targeting
+last, deliberately, since it needs real attempt data from every earlier
+slice to have anything meaningful to target. Chinese handwriting/stroke-order
+practice deferred to sit alongside Phase 7 (Whisper) as a stretch goal,
+not core Phase 5 scope.
+
 ## Current Status
 
 **As of 2026-08-14:**
@@ -1182,14 +1295,27 @@ all clean.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: continue Phase 5 with the next slice — auto-card-generation,
-  mnemonics, or adaptive weak-point targeting (see the sub-feature list
-  below) — checkpoint with the user first per this project's per-slice
-  cadence, same as TTS and free-text grading were.
+- Next: journal correction + auto vocab extraction (the next Phase 5
+  slice per the 2026-08-14 revised order — see the decision log entry
+  and the Phase checklist above), checkpointing with the user first per
+  this project's per-slice cadence, same as TTS and free-text grading
+  were.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
 
+- Reading passage generation (Phase 5) needs its own content-model design
+  pass when that slice starts — the get-or-generate-and-cache pattern from
+  `VocabularyExample`/`VocabularyAudio` is the likely shape, not a reuse
+  of `Skill`/`LessonExercise`. See the 2026-08-14 "Vocabulary → Reading"
+  decision log entry.
+- Coverage-gap analysis shares the known-vocabulary system's prerequisite
+  (frequency-band data + known-words data) — don't schedule it before that
+  work exists, even though it's cheap once it does.
+- Frequency-list source for the known-vocabulary placement check isn't
+  locked in — likely hermitdave/FrequencyWords for Spanish, HSK level
+  lists for Chinese (see the same decision log entry) — verify licensing
+  before actually pulling either in.
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
   as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
   for the conversational practice partner (Phase 6), which will burn requests
