@@ -13,6 +13,9 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}/api${path}`, {
     ...init,
+    // Needed for the session cookie (Phase 8 slice 1's Google sign-in) to
+    // be sent/received at all -- every call site gets this for free.
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {

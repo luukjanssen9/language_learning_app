@@ -56,7 +56,12 @@ Living project plan and status log. Read at the start of every session; update C
   language's config to prove the architecture generalizes~~ — done early,
   2026-08-14 (v1 Dutch course, see Decisions Log); performance/cost
   review; tests; deployment; final README with setup, architecture overview,
-  screenshots/demo.
+  screenshots/demo. Real multi-user auth (Google Sign-In) added to this
+  phase's scope 2026-08-15, per the user's explicit ask — the single
+  largest change in the project so far, sliced like Phase 4/5/6:
+  **slice 1 (backend foundation + `/login`) done** — see Decisions Log;
+  slices 2-4 (personal-data `user_id` scoping, route hardening, full
+  frontend integration) not yet started.
 
 ## Decisions Log
 
@@ -1860,10 +1865,117 @@ confirmed the shared search box filters both sections correctly and that
 the "no match" message for the tracked list points the user at the
 Mastered flashcards section when a query matches there instead.
 
+**2026-08-15 — Real multi-user auth kicked off (Phase 8); Slice 1 (backend
+foundation + Google Sign-In) complete and verified.** User's explicit ask
+alongside starting Phase 8. An audit before any design work found this is
+the largest change in the project's history by far: almost nothing enforces
+ownership today (`GET /decks` returns every user's decks, `GET /users`
+lists every email, ~10 routes trust a client-supplied `user_id` outright
+with zero verification), and the frontend silently creates/reuses one
+hardcoded user (`frontend/src/lib/bootstrap.ts`). Confirmed with the user
+(AskUserQuestion) on three decisions before any planning: **Course stays
+shared/global** (matches how `Language` already works — personal content
+gets `user_id` added in Slice 2, not this one); **Google Sign-In only**, no
+password flow; **existing single-user dev data gets reassigned** to
+whichever Google account first logs in, not wiped.
+
+Sliced like Phase 4/5/6, checkpoint between each — Slice 1 scoped
+deliberately narrow: prove the Google OAuth mechanism itself works, in
+isolation, before building three more slices on top of it. Chose the
+Google Identity Services **ID-token button flow**, not the full
+authorization-code redirect flow — the button hands a signed JWT straight
+to the frontend; the backend verifies it against Google's public keys
+using only the (public) client ID. No client secret anywhere in this flow,
+meaningfully simpler than a redirect+code-exchange dance for a project
+this size, still genuinely real Google OAuth.
+
+**Backend**: `User` gains a nullable, unique `google_sub` column (Google's
+stable per-account id — never changes, unlike email). New
+`app/services/auth.py`: `verify_google_id_token` wraps `google-auth`'s
+verification (run via `asyncio.to_thread` since the underlying call is
+blocking), exposed as a swappable `Depends` (`get_google_token_verifier`)
+so tests never hit Google's network — same pattern `get_llm_provider`/
+`get_tts_client` already established; `create_session_token`/
+`decode_session_token` issue/verify a 30-day HS256 JWT signed with
+`settings.secret_key` (already existed, already earmarked "for later
+phases" before real auth existed). New `POST /auth/google`: existing
+`google_sub` match -> log in; **nobody** has ever signed in for real yet ->
+claim the oldest unclaimed row *in place* (update its identity fields,
+not move any data -- every existing `user_id`-linked row, decks, journal
+entries, conversations, already points at that same row's id, so
+"claiming" it is a one-row `UPDATE`, not a migration); otherwise -> create
+a genuinely new `User`. Sets an httpOnly `session` cookie
+(`secure`/`samesite` flip together based on `settings.environment`,
+matching `database.py`'s existing dev-vs-prod pattern). `GET /auth/me` /
+`POST /auth/logout` round out the slice. `get_current_user`
+(`app/api/auth.py`) exists as a dependency but is **not wired into any
+existing route yet** — that's Slice 3. CORS `allow_credentials` flipped to
+`True` (the block's own comment already flagged this as the deliberate
+"no auth yet" simplification to revisit).
+
+**A real test-isolation bug found live, not by review**: the first version
+of the "claims the legacy row" test created its own fixture row and
+asserted the response was *that* row — but the shared dev DB's real, much
+older "Sanity" seed user is also an unclaimed row, and the route's "oldest
+unclaimed row" query correctly (for the app) picked *it* instead, failing
+the test. Not an application bug — confirms the claim logic will correctly
+find and claim the real dev user once a real login happens — fixed by
+giving the test's fixture row an explicit, deliberately-ancient
+`created_at` (overriding the column's `server_default`) rather than fighting
+the shared DB's real contents, worth remembering as a pattern for any
+future test that queries "the oldest X" against this dev database.
+
+**Frontend**: new `app/login/page.tsx` — `GoogleOAuthProvider` +
+`<GoogleLogin>`, posts the credential to `/auth/google`, shows "Signed in
+as {name}" (this slice's confirmation UI; redirect-to-dashboard behavior
+is Slice 4's job once `BootstrapProvider` actually depends on this).
+Deliberately not linked from `Nav.tsx` yet, and `BootstrapProvider` is
+untouched — still silently creates/reuses its own user on every page,
+including this one, for now. `lib/api/client.ts` gained `credentials:
+"include"` (one line, every existing call site gets it for free) — needed
+for the session cookie to be sent/received at all. New
+`frontend/.env.example` (didn't exist before, though `NEXT_PUBLIC_API_URL`
+was already used undocumented) plus `NEXT_PUBLIC_GOOGLE_CLIENT_ID`.
+
+Automated verification: 8 new backend tests (181 total), `ruff` clean;
+frontend `tsc`/`eslint`/92 tests unaffected, no new frontend tests needed
+for a thin library-driven login page.
+
+**Two real bugs found live, only reachable via the user's own Google Cloud
+setup and a real sign-in attempt** (the one part of this slice no amount
+of automated testing could substitute for): (1) `settings.google_oauth_client_id`
+loaded as empty on the running backend even after the user added it to
+`.env` — env vars only load at process startup, and uvicorn's `--reload`
+watches Python file changes, not `.env` changes, so the fix was restarting
+the backend, not a code change. (2) A genuine code bug alongside it: `POST
+/auth/google` never caught `AuthError` from a failed verification, so it
+leaked as a raw 500 with a stack trace instead of a clean 401 — fixed by
+adding an `@app.exception_handler(AuthError)` in `app/main.py`, matching
+the exact existing pattern `LLMError`/`TTSError` already use, rather than
+a one-off local try/except (`get_current_user`'s own local catch, which
+was already correct, stays as the more-specific-message path; the new
+global handler is the safety net for every other call site).
+
+**Live end-to-end confirmed working** after both fixes: signed in with a
+real Google account, verified directly against the dev DB that the
+legacy seed user's row was updated *in place* (`created_at` unchanged from
+its original 2026-08-13 seed date, ruling out a new row) with the real
+`email`/`display_name` from the Google account, and that all 4 of that
+user's existing decks are still attached to the same `user_id` — zero data
+loss, exactly as designed.
+
 ## Current Status
 
 **As of 2026-08-15:**
 
+- Done: **Phase 8 — real multi-user auth, Slice 1 (backend foundation +
+  Google Sign-In), complete and verified live** — real Google account
+  sign-in confirmed working end-to-end, including the legacy-data-claim
+  logic (the dev seed user's row updated in place, zero data loss). Two
+  real bugs found only reachable via live testing, both fixed — see the
+  decision log entry just above for the full breakdown. Slices 2-4
+  (personal-data `user_id` scoping, route hardening, full frontend
+  integration replacing `BootstrapProvider`) not started.
 - Done: **Known-vocabulary page now shows the full known set** (mastered
   flashcards + tracked known-vocabulary items, not just the latter) — see
   the decision log entry just above for the full breakdown. Also resolved
@@ -2058,15 +2170,29 @@ Mastered flashcards section when a query matches there instead.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: Phase 7 (speech, stretch goal) — Whisper integration, pronunciation
-  comparison/feedback — or Phase 8 (scalability check, polish & deploy),
-  whichever the user wants to tackle first; Phases 5 and 6 are both fully
-  complete now. Checkpoint with the user first per this project's per-slice
-  cadence.
-- Open questions: none blocking.
+- Next: Phase 8 auth Slice 2 — add `user_id` to `VocabularyItem`/
+  `KnownVocabularyItem`/`ReadingPassage`, update the cross-user vocab dedup
+  logic that currently deliberately shares words across everyone on a
+  course. Checkpoint with the user first per this project's per-slice
+  cadence, as always.
+- Open questions: none blocking — the three big auth-architecture
+  decisions (Course stays shared, Google-only, reassign legacy data) are
+  already resolved; execution is just working through Slices 2-4 now.
 
 ## Known Issues / Follow-ups
 
+- `SECRET_KEY`'s dev default (`dev-secret-change-me`, 20 bytes) signs the
+  new session JWT (Phase 8 slice 1) and is now genuinely security-relevant,
+  not just a placeholder — PyJWT already warns on it
+  (`InsecureKeyLengthWarning`, below the 32-byte HS256 minimum). Must be
+  replaced with a real random value before deployment (Phase 8's later
+  slice); harmless for local dev.
+- `alembic revision --autogenerate` keeps proposing to drop a pre-existing
+  `ix_cards_due_at` index on `cards` (superseded by the composite
+  `ix_cards_deck_id_due_at`, never cleaned up) — surfaced in both the
+  2026-08-15 roleplay-chat migration and the same day's auth migration,
+  each time manually stripped out to keep the migration scoped. Worth an
+  actual cleanup migration at some point so this stops recurring.
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
   as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
   for the conversational practice partner (Phase 6), which will burn requests

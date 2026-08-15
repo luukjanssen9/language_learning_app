@@ -16,6 +16,8 @@ dependencies = [
     "google-genai>=1.0",
     "google-cloud-texttospeech>=2.16",
     "jieba>=0.42",
+    "google-auth>=2.35",
+    "pyjwt>=2.9",
 ]
 
 [project.optional-dependencies]

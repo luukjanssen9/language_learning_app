@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-change-me"
     frontend_origin: str = "http://localhost:3000"
 
+    # --- Auth ---
+    # No client secret here -- the Google Identity Services ID-token flow
+    # this app uses only ever needs the (public) client ID, both to
+    # configure the frontend's Sign In With Google button and to verify
+    # the token's audience claim server-side.
+    google_oauth_client_id: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
