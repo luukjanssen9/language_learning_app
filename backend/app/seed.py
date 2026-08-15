@@ -27,6 +27,7 @@ from app.models.deck import Deck
 from app.models.enums import ExerciseType
 from app.models.language import Language
 from app.models.lesson_exercise import LessonExercise, LessonExerciseVocabulary
+from app.models.roleplay import RoleplayScenario
 from app.models.skill import Skill
 from app.models.user import User
 from app.models.user_exercise_attempt import UserExerciseAttempt
@@ -1597,6 +1598,99 @@ CHINESE_VOCAB_NOTES = [
 ]
 
 
+# Roleplay scenarios (Phase 6) -- deliberately language-agnostic English
+# setup_prompt text, not course-scoped: see RoleplayScenario's docstring
+# for why one shared list serves every course rather than being seeded
+# once per course.
+ROLEPLAY_SCENARIOS = [
+    {
+        "slug": "order-coffee",
+        "name": "Order coffee",
+        "setup_prompt": (
+            "You are a friendly barista at a small café. The learner is a "
+            "customer ordering a drink. Ask what they'd like, offer a couple "
+            "of simple options if they hesitate, and wrap up naturally once "
+            "they've ordered (e.g. asking if that's for here or to go)."
+        ),
+    },
+    {
+        "slug": "ask-directions",
+        "name": "Ask for directions",
+        "setup_prompt": (
+            "You are a friendly local the learner has stopped on the street. "
+            "The learner is lost and asking for directions to a nearby place "
+            "(a train station, a pharmacy, a park -- pick one naturally). "
+            "Give clear, simple directions and check they understood."
+        ),
+    },
+    {
+        "slug": "hotel-checkin",
+        "name": "Check into a hotel",
+        "setup_prompt": (
+            "You are the front-desk receptionist at a hotel. The learner is "
+            "checking in. Ask for their name/reservation, confirm details "
+            "(room type, number of nights), and explain check-out time and "
+            "where the room is."
+        ),
+    },
+    {
+        "slug": "neighbor-small-talk",
+        "name": "Small talk with a neighbor",
+        "setup_prompt": (
+            "You are the learner's friendly neighbor, running into them "
+            "outside. Make casual small talk -- the weather, weekend plans, "
+            "how they're settling in -- the way a real neighbor would, "
+            "nothing formal or scripted."
+        ),
+    },
+    {
+        "slug": "return-item",
+        "name": "Return an item at a store",
+        "setup_prompt": (
+            "You are a store clerk at the returns counter. The learner wants "
+            "to return or exchange something. Ask what the issue is, whether "
+            "they have a receipt, and whether they'd like a refund or "
+            "exchange."
+        ),
+    },
+    {
+        "slug": "doctor-appointment",
+        "name": "Make a doctor's appointment",
+        "setup_prompt": (
+            "You are a receptionist at a doctor's office, answering the "
+            "phone. The learner wants to book an appointment. Ask what it's "
+            "for (in general terms, not medical details), find a day/time "
+            "that works, and confirm the booking."
+        ),
+    },
+]
+
+
+async def _get_or_create_roleplay_scenario(
+    session, *, name: str, slug: str, setup_prompt: str, order_index: int
+) -> RoleplayScenario:
+    result = await session.execute(select(RoleplayScenario).where(RoleplayScenario.slug == slug))
+    scenario = result.scalar_one_or_none()
+    if scenario is None:
+        scenario = RoleplayScenario(
+            name=name, slug=slug, setup_prompt=setup_prompt, order_index=order_index
+        )
+        session.add(scenario)
+        await session.flush()
+    else:
+        # Always overwrite content fields -- same "converges on this file,
+        # not accumulated drift" convention as grammar_config above.
+        scenario.name = name
+        scenario.setup_prompt = setup_prompt
+        scenario.order_index = order_index
+    return scenario
+
+
+async def _seed_roleplay_scenarios(session) -> None:
+    for index, scenario in enumerate(ROLEPLAY_SCENARIOS):
+        await _get_or_create_roleplay_scenario(session, order_index=index, **scenario)
+
+
 async def _seed_spanish_vocab_notes(
     session, course: Course, deck: Deck, language: Language
 ) -> None:
@@ -1644,6 +1738,8 @@ async def seed() -> None:
             session, dutch_course, prerequisite=dutch_greetings
         )
         await _seed_dutch_conjugation_skill(session, dutch_course, prerequisite=dutch_family)
+
+        await _seed_roleplay_scenarios(session)
 
         # Anki-style vocab-deck notes, real content run through the actual
         # build_cards_for_note() path -- see the 2026-08-14 "Anki-style

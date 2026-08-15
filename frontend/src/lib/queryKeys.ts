@@ -42,4 +42,10 @@ export const queryKeys = {
 
   weakPoints: (userId: string, courseId: string) =>
     ["weak-points", userId, courseId] as const,
+
+  roleplayScenarios: ["roleplay-scenarios"] as const,
+  conversations: (userId: string, courseId: string) =>
+    ["conversations", userId, courseId] as const,
+  conversationMessages: (conversationId: string) =>
+    ["conversation-messages", conversationId] as const,
 };

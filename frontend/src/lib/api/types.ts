@@ -435,3 +435,47 @@ export interface WeakPointsResponse {
   weak_lesson_words: WeakLessonWord[];
   weak_skills: WeakSkill[];
 }
+
+export interface RoleplayScenario {
+  id: string;
+  name: string;
+  slug: string;
+  setup_prompt: string;
+  order_index: number;
+  created_at: string;
+}
+
+export type MessageRole = "user" | "assistant";
+
+export interface ConversationMessage {
+  id: string;
+  conversation_id: string;
+  role: MessageRole;
+  text: string;
+  corrections: Correction[] | null;
+  created_at: string;
+}
+
+export interface Conversation {
+  id: string;
+  user_id: string;
+  course_id: string;
+  scenario_id: string;
+  created_at: string;
+}
+
+export interface ConversationStartPayload {
+  user_id: string;
+  course_id: string;
+  scenario_id: string;
+}
+
+export interface ConversationStartResponse {
+  conversation: Conversation;
+  messages: ConversationMessage[];
+}
+
+export interface MessageSubmitResponse {
+  user_message: ConversationMessage;
+  assistant_message: ConversationMessage;
+}

@@ -66,3 +66,8 @@ class KnownVocabularySource(enum.StrEnum):
     # VocabularyItem + Card, rather than being deleted -- see
     # app/models/known_vocabulary.py's docstring.
     PROMOTED = "promoted"
+
+
+class MessageRole(enum.StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"

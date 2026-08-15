@@ -46,8 +46,10 @@ Living project plan and status log. Read at the start of every session; update C
   context attached). Also: the Vocabulary course category
   (Greetings/Family) was retired in favor of a Reading category — see the
   2026-08-14 decision log entry.
-- [ ] **Phase 6 — Conversational practice partner**: chat UI, roleplay
-  scenarios constrained to known vocabulary, in-context correction.
+- [x] **Phase 6 — Conversational practice partner**: chat UI, roleplay
+  scenarios constrained to known vocabulary, in-context correction —
+  complete and verified end-to-end, built as one MVP slice rather than
+  split further (see the 2026-08-15 decision log entry).
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
   comparison/feedback.
 - [ ] **Phase 8 — Scalability check, polish & deploy**: ~~add a second
@@ -1752,10 +1754,83 @@ examples for a never-before-cached word ("abajo") and confirmed the
 mnemonic rendered correctly above the three example sentences, and that the
 DB `INSERT` included the new column.
 
+**2026-08-15 — Conversational practice partner (Phase 6), complete and verified
+end-to-end.** Built as one MVP slice, not split further like Phase 5's
+independent sub-features — a chat UI without scenarios has nothing to
+roleplay, and scenarios without correction isn't "practice," so chat UI,
+roleplay scenarios, and in-context correction shipped together. Confirmed
+with the user (AskUserQuestion) up front: scenarios are a small pre-authored
+list (same content-authoring pattern as `Skill`), not free-form topics; no
+token-by-token streaming for v1 (plain request/response per turn, matching
+every existing feature in this app).
+
+**Real gap found during design exploration, before writing any code**:
+`LLMProvider` (`app/services/llm/base.py`) was single-shot prompt-in/
+structured-out only — no multi-turn message history. Every earlier Phase 5
+feature could get away with that; a chat can't. Extended the Protocol with
+`generate_chat_reply(system_prompt, history: list[ChatTurn], response_model,
+model_tier)`, `GeminiProvider` implementing it via a real multi-turn
+`contents` list (`types.Content` per turn) rather than concatenating
+transcript into a single string. New `app/services/roleplay_chat.py` splits
+into two functions rather than one: `start_conversation` (single-shot
+`generate_structured` — no history yet, nothing to correct) and
+`continue_conversation` (the new multi-turn path) — genuinely different
+prompt framing, not an arbitrary split.
+
+**Schema**: `RoleplayScenario` deliberately **not** course-scoped like
+`Skill` — a situation like "order coffee" doesn't vary by target language,
+only the language a given `Conversation` conducts it in does (avoids
+seeding the same 6 scenarios once per course). `Conversation` accumulates
+`ConversationMessage` rows over time per course, same "many rows, each a
+persisted snapshot" shape as `ReadingPassage`/`JournalEntry`.
+`ConversationMessage.corrections` is null (not `[]`) on assistant rows —
+"no corrections" doesn't apply to them at all. `POST
+/conversations/{id}/messages` persists the user's turn, replies via
+`continue_conversation` (full prior history + this turn), and grades that
+same turn in the same LLM call — the reply and the correction of what was
+just said are one round trip, not two.
+
+**Frontend**: new top-level "Roleplay" nav item (genuinely new feature,
+unlike weak-points which fit inside an existing page) — `/roleplay`
+(scenario picker + past-conversations list) and `/roleplay/[conversationId]`
+(the chat). User messages show corrections inline underneath, reusing
+`JournalEntryCard`'s exact corrections-list rendering pattern rather than
+inventing a new one. The user's own message appears immediately on send
+(local `pendingText` state, cleared once the mutation settles) rather than
+waiting for the full round trip including the LLM reply — otherwise sending
+would feel broken/laggy for a chat UI.
+
+**Verified live against the real Gemini API**: started a conversation from
+"Order coffee," got an in-character opening line in Spanish; sent a message
+with two deliberate mistakes ("Yo quiere" wrong conjugation, "con leches"
+wrong number) and got back precise, correctly-explained corrections for
+both, with the reply staying fully in character and even echoing back the
+scenario's own "here or to go" framing; continued for another turn and
+confirmed real conversational memory (the final reply correctly referenced
+"grande" and "para llevar" from the immediately preceding turn); resumed the
+conversation from the picker page's history list and confirmed the full
+transcript reloaded correctly. Hit one real transient 502 (Gemini free-tier
+overload, same class of flakiness this project has documented before) on a
+send — confirmed via query log that the whole request (including the
+already-flushed user-message `INSERT`) rolled back atomically on failure, so
+retrying produced no orphaned/duplicate row. 9 new backend tests (171
+total: 4 pure `roleplay_chat.py` unit tests, 5 route integration tests via
+an extended `FakeLLMProvider`), `ruff` clean. 5 new `MessageBubble.test.tsx`
+tests (90 frontend tests total) — the two page components themselves
+(`roleplay/page.tsx`, `roleplay/[conversationId]/page.tsx`) stay hook-wired
+and left to live-browser verification only, per this project's established
+convention. `tsc`/`eslint` clean.
+
 ## Current Status
 
 **As of 2026-08-15:**
 
+- Done: **Conversational practice partner (Phase 6), complete and verified
+  end-to-end** — pre-authored roleplay scenarios, multi-turn chat (a new
+  `generate_chat_reply` method on `LLMProvider`, since the existing
+  single-shot `generate_structured` wasn't enough), and in-context
+  correction bundled into the same reply call. See the decision log entry
+  just above for the full breakdown.
 - Done: **Mnemonics gap closed — Phase 5 is now fully complete**, all
   planned slices built and checked off. One shared mnemonic per word, folded
   into the existing example-generation endpoint/`VocabularyExample` cache as
@@ -1939,10 +2014,11 @@ DB `INSERT` included the new column.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: Phase 6 (conversational practice partner) — chat UI, roleplay
-  scenarios constrained to known vocabulary, in-context correction. Phase 5
-  is fully complete now. Checkpoint with the user first per this project's
-  per-slice cadence.
+- Next: Phase 7 (speech, stretch goal) — Whisper integration, pronunciation
+  comparison/feedback — or Phase 8 (scalability check, polish & deploy),
+  whichever the user wants to tackle first; Phases 5 and 6 are both fully
+  complete now. Checkpoint with the user first per this project's per-slice
+  cadence.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups

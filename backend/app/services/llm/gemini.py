@@ -9,7 +9,7 @@ from google.genai import types
 
 from app.config import settings
 
-from .base import BaseModelT, LLMError, ModelTier
+from .base import BaseModelT, ChatTurn, LLMError, ModelTier
 
 
 class GeminiProvider:
@@ -28,6 +28,37 @@ class GeminiProvider:
                 model=self._models[model_tier],
                 contents=prompt,
                 config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=response_model,
+                ),
+            )
+        except Exception as exc:
+            raise LLMError(f"Gemini request failed: {exc}") from exc
+
+        if response.parsed is None:
+            raise LLMError("Gemini response did not match the requested schema")
+        return response.parsed
+
+    async def generate_chat_reply(
+        self,
+        system_prompt: str,
+        history: list[ChatTurn],
+        response_model: type[BaseModelT],
+        model_tier: ModelTier = "fast",
+    ) -> BaseModelT:
+        contents = [
+            types.Content(
+                role="model" if turn.role == "assistant" else "user",
+                parts=[types.Part(text=turn.text)],
+            )
+            for turn in history
+        ]
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=self._models[model_tier],
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
                     response_mime_type="application/json",
                     response_schema=response_model,
                 ),

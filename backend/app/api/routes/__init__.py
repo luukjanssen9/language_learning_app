@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     cards,
+    conversations,
     courses,
     decks,
     journal_entries,
@@ -11,6 +12,7 @@ from app.api.routes import (
     paste_in,
     reading_passages,
     review_logs,
+    roleplay_scenarios,
     skills,
     user_courses,
     user_exercise_attempts,
@@ -38,3 +40,5 @@ api_router.include_router(review_logs.router)
 api_router.include_router(user_progress.router)
 api_router.include_router(user_exercise_attempts.router)
 api_router.include_router(weak_points.router)
+api_router.include_router(roleplay_scenarios.router)
+api_router.include_router(conversations.router)

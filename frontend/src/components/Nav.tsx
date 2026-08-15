@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/known-vocabulary", label: "Known words" },
   { href: "/journal", label: "Journal" },
   { href: "/paste-in", label: "Paste text" },
+  { href: "/roleplay", label: "Roleplay" },
 ];
 
 export function Nav() {

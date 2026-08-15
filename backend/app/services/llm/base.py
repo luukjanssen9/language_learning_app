@@ -20,6 +20,15 @@ BaseModelT = TypeVar("BaseModelT", bound=BaseModel)
 ModelTier = Literal["fast", "reasoning"]
 
 
+class ChatTurn(BaseModel):
+    """One turn in a multi-turn conversation, oldest-first when passed as
+    a list -- see `LLMProvider.generate_chat_reply`.
+    """
+
+    role: Literal["user", "assistant"]
+    text: str
+
+
 class LLMError(Exception):
     """Raised on provider/network failure, or a response that doesn't
     parse against the requested `response_model`. Callers (routes) are
@@ -42,5 +51,23 @@ class LLMProvider(Protocol):
         low-complexity calls and a stronger model for calls that need
         more reasoning (mirrors this project's Haiku/Sonnet-style split
         -- see PLAN.md's 2026-08-11 LLM-provider decision).
+        """
+        ...
+
+    async def generate_chat_reply(
+        self,
+        system_prompt: str,
+        history: list[ChatTurn],
+        response_model: type[BaseModelT],
+        model_tier: ModelTier = "fast",
+    ) -> BaseModelT:
+        """Same structured-JSON contract as `generate_structured`, but for
+        multi-turn conversations: `system_prompt` sets persona/instructions
+        (sent once, out-of-band from the turns, the same role a single
+        one-shot `prompt` plays elsewhere), `history` is the full
+        conversation so far so the model has real conversational memory,
+        not just the latest message -- see PLAN.md's Phase 6 decision for
+        why `generate_structured` alone (single prompt string, no message
+        list) wasn't enough for a chat feature.
         """
         ...

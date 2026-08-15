@@ -12,6 +12,7 @@ from app.models.language import Language
 from app.models.lesson_exercise import LessonExercise, LessonExerciseVocabulary
 from app.models.reading_passage import ReadingPassage, ReadingPassageAttempt
 from app.models.review_log import ReviewLog
+from app.models.roleplay import Conversation, ConversationMessage, RoleplayScenario
 from app.models.skill import Skill
 from app.models.user import User
 from app.models.user_course import UserCourse
@@ -24,6 +25,8 @@ from app.models.vocabulary_example import VocabularyExample
 __all__ = [
     "Base",
     "Card",
+    "Conversation",
+    "ConversationMessage",
     "Course",
     "Deck",
     "JournalEntry",
@@ -34,6 +37,7 @@ __all__ = [
     "ReadingPassage",
     "ReadingPassageAttempt",
     "ReviewLog",
+    "RoleplayScenario",
     "Skill",
     "User",
     "UserCourse",
