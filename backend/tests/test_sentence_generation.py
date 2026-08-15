@@ -35,12 +35,13 @@ class FakeLLMProvider:
         return self.canned_response
 
 
-async def test_generate_example_sentences_returns_provider_examples():
+async def test_generate_example_sentences_returns_provider_result():
     canned = ExampleSentenceList(
         examples=[
             ExampleSentence(target_text="Hola, ¿cómo estás?", base_text="Hi, how are you?"),
             ExampleSentence(target_text="Hola de nuevo.", base_text="Hello again."),
-        ]
+        ],
+        mnemonic="Sounds like 'Oh, la!' -- a cheerful greeting.",
     )
     fake = FakeLLMProvider(canned)
 
@@ -53,7 +54,24 @@ async def test_generate_example_sentences_returns_provider_examples():
         count=2,
     )
 
-    assert result == canned.examples
+    assert result == canned
+    assert result.mnemonic == "Sounds like 'Oh, la!' -- a cheerful greeting."
+
+
+async def test_generate_example_sentences_prompt_asks_for_a_mnemonic():
+    fake = FakeLLMProvider(ExampleSentenceList(examples=[], mnemonic=""))
+
+    await generate_example_sentences(
+        fake,
+        target_language_name="Spanish",
+        base_language_name="English",
+        target_text="hola",
+        part_of_speech=None,
+        count=3,
+    )
+
+    assert fake.last_prompt is not None
+    assert "mnemonic" in fake.last_prompt.lower()
 
 
 async def test_generate_example_sentences_prompt_uses_passed_in_language_names():
@@ -61,7 +79,7 @@ async def test_generate_example_sentences_prompt_uses_passed_in_language_names()
     # language -- Dutch/English here specifically because this project's
     # default/first-built language was Spanish, so a test that only ever
     # used Spanish wouldn't catch a hardcoded "Spanish" slipping in.
-    fake = FakeLLMProvider(ExampleSentenceList(examples=[]))
+    fake = FakeLLMProvider(ExampleSentenceList(examples=[], mnemonic=""))
 
     await generate_example_sentences(
         fake,
@@ -80,7 +98,7 @@ async def test_generate_example_sentences_prompt_uses_passed_in_language_names()
 
 
 async def test_generate_example_sentences_omits_part_of_speech_when_absent():
-    fake = FakeLLMProvider(ExampleSentenceList(examples=[]))
+    fake = FakeLLMProvider(ExampleSentenceList(examples=[], mnemonic=""))
 
     await generate_example_sentences(
         fake,
@@ -92,11 +110,13 @@ async def test_generate_example_sentences_omits_part_of_speech_when_absent():
     )
 
     assert fake.last_prompt is not None
-    assert "(" not in fake.last_prompt
+    # Specifically the pos_clause parenthetical, not "any parenthesis" --
+    # the mnemonic clause legitimately has its own ("in {base_language}").
+    assert '"hola" (' not in fake.last_prompt
 
 
 async def test_generate_example_sentences_uses_fast_model_tier():
-    fake = FakeLLMProvider(ExampleSentenceList(examples=[]))
+    fake = FakeLLMProvider(ExampleSentenceList(examples=[], mnemonic=""))
 
     await generate_example_sentences(
         fake,

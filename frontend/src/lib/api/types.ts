@@ -269,6 +269,7 @@ export interface VocabularyExample {
   id: string;
   target_text: string;
   base_text: string;
+  mnemonic: string | null;
   created_at: string;
 }
 

@@ -36,8 +36,8 @@ Living project plan and status log. Read at the start of every session; update C
   6-persons drill covering 15 irregular verbs + present perfect). Code
   complete and verified end-to-end in a real browser against the live
   API.
-- [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
-  Gemini default), example generation, free-text grading, journal
+- [x] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
+  Gemini default), example generation + mnemonics, free-text grading, journal
   correction + auto vocab extraction, known-vocabulary system, reading
   passage generation, paste-in content with unknown-word flagging,
   coverage-gap analysis vs. a CEFR/HSK-style list, adaptive weak-point
@@ -45,10 +45,7 @@ Living project plan and status log. Read at the start of every session; update C
   its own slice (journal correction/paste-in flagging cover it with real
   context attached). Also: the Vocabulary course category
   (Greetings/Family) was retired in favor of a Reading category — see the
-  2026-08-14 decision log entry. **Not yet checked off**: mnemonics was
-  decided (2026-08-13) to fold into the example-generation endpoint as an
-  extra field rather than get its own slice, but that field was never
-  actually added — see Known Issues.
+  2026-08-14 decision log entry.
 - [ ] **Phase 6 — Conversational practice partner**: chat UI, roleplay
   scenarios constrained to known vocabulary, in-context correction.
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
@@ -1704,20 +1701,76 @@ on top of its own dedicated backend and frontend tests. 6 new
 `WeakPointsPanel.test.tsx` tests (85 frontend tests total), `tsc`/`eslint`
 clean.
 
+**2026-08-15 — Mnemonics gap closed, Phase 5 now fully checked off.** The
+2026-08-13 Phase 5 kickoff decided mnemonics would fold into the existing
+example-generation endpoint as an extra field rather than get its own slice,
+but that field was never actually added -- found and flagged while closing
+out the weak-point-targeting slice's PLAN.md updates. Small and well-scoped,
+confirmed with the user before starting (fix now vs. defer alongside Phase 6
+-- chose now).
+
+One mnemonic per *word*, not per example sentence: `ExampleSentenceList`
+(`app/services/sentence_generation.py`) gained a `mnemonic: str` field
+alongside its existing `examples` list, generated in the same LLM call via
+one added prompt clause ("a vivid mental image, a sound-alike, or a
+word-association trick"). Persisted onto `VocabularyExample` (new nullable
+`mnemonic` column, migration `d8e4f21a9c6b`) -- duplicated onto all 3
+generated rows for a word rather than pulled into a separate envelope
+object/table, since a mnemonic is conceptually one-per-word and this avoids
+an API contract change to the existing `list[VocabularyExampleRead]`
+response shape. Nullable, no backfill: pre-existing cached example rows
+(generated before this field existed) simply show no mnemonic until
+naturally regenerated -- `get_vocabulary_item_examples`'s get-or-generate
+caching means that's effectively permanent for already-cached words, an
+accepted tradeoff for a small addendum feature. Frontend shows it once
+(from `examples[0].mnemonic`) above the example sentences in
+`VocabularyItemRow`, not per-row.
+
+**A real, unrelated bug hit live while verifying**: after editing the
+backend model/schema/service/route, the running `uvicorn --reload` process
+logged "WatchFiles detected changes... Reloading..." but the actual
+worker kept serving with the *old* `VocabularyExample` mapping (confirmed by
+inspecting the raw `INSERT` statement in the query log -- no `mnemonic`
+column -- while a direct `information_schema.columns` query confirmed the
+migration itself had applied correctly). A full kill of the process tree
+(reloader + worker) and clean restart fixed it; root cause not fully
+pinned down (Windows + `watchfiles` + multiprocessing spawn quirk, most
+likely), but the underlying migration/model/code were never in question --
+worth remembering that a "detected changes, reloading" log line isn't
+proof the reload actually completed, if a subsequent request's behavior
+looks stale.
+
+**Verified**: 2 updated + 1 new test in `test_sentence_generation.py`, 1
+updated test in `test_vocabulary_examples.py` (asserting the shared
+mnemonic is duplicated across all persisted rows), one pre-existing test's
+over-broad `"(" not in prompt` assertion tightened to check specifically
+for the part-of-speech clause it was meant to test, now that the mnemonic
+clause legitimately has its own parenthetical. 162 backend tests total,
+`ruff` clean; frontend `tsc`/`eslint`/tests unaffected (no new frontend
+tests needed -- straightforward type + rendering addition). Live: generated
+examples for a never-before-cached word ("abajo") and confirmed the
+mnemonic rendered correctly above the three example sentences, and that the
+DB `INSERT` included the new column.
+
 ## Current Status
 
 **As of 2026-08-15:**
 
-- Done: **Adaptive weak-point targeting (Phase 5, final slice), complete and
+- Done: **Mnemonics gap closed — Phase 5 is now fully complete**, all
+  planned slices built and checked off. One shared mnemonic per word, folded
+  into the existing example-generation endpoint/`VocabularyExample` cache as
+  originally decided back on 2026-08-13. Includes a real (unrelated) dev-env
+  bug hit live: `uvicorn --reload` reported reloading but kept serving stale
+  code until the process tree was fully restarted — see the decision log
+  entry just above for the full breakdown.
+- Done: **Adaptive weak-point targeting (Phase 5), complete and
   verified end-to-end** — a new `GET /weak-points` endpoint blending FSRS
   card lapses, per-word lesson-exercise accuracy, and per-skill mastery into
   a ranked "Weak points" panel on the dashboard, each item linking into an
-  existing review/lesson flow. All Phase 5 slices are now built (mnemonics'
-  "fold into example-generation" decision is the one open exception — see
-  Known Issues). Includes a real gap found and fixed live: the dashboard had
-  no `CourseProvider` in its tree (unlike every other section) since its
-  deck list never needed course-scoping before — see the decision log entry
-  just above for the full breakdown.
+  existing review/lesson flow. Includes a real gap found and fixed live: the
+  dashboard had no `CourseProvider` in its tree (unlike every other section)
+  since its deck list never needed course-scoping before — see the earlier
+  2026-08-15 decision log entry for the full breakdown.
 - Done: **Coverage-gap analysis vs. a CEFR/HSK-style list (Phase 5), complete
   and verified end-to-end** — a new `/known-vocabulary/full-set` endpoint, a
   `CoveragePanel` on `/known-vocabulary` showing per-band known-word coverage
@@ -1887,24 +1940,13 @@ clean.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
 - Next: Phase 6 (conversational practice partner) — chat UI, roleplay
-  scenarios constrained to known vocabulary, in-context correction. All of
-  Phase 5's planned slices are now built except the small, still-open
-  mnemonics gap (see Known Issues) — worth a quick decision (fold it in now
-  as a small addendum, or fold it into Phase 6 prep) before starting Phase 6
-  in earnest. Checkpoint with the user first per this project's per-slice
-  cadence.
-- Open questions: whether to close the mnemonics gap before or alongside
-  starting Phase 6 (see Known Issues) — not blocking, just undecided.
+  scenarios constrained to known vocabulary, in-context correction. Phase 5
+  is fully complete now. Checkpoint with the user first per this project's
+  per-slice cadence.
+- Open questions: none blocking.
 
 ## Known Issues / Follow-ups
 
-- **Mnemonics gap**: the 2026-08-13 Phase 5 kickoff decided mnemonics would
-  fold into the existing example-generation endpoint (`generate_example_sentences`
-  in `app/services/sentence_generation.py`) as an extra field rather than get
-  its own slice — that field was never actually added. Found while closing
-  out Phase 5's checklist entry for the weak-point-targeting slice; small,
-  well-scoped whenever picked up (one more field on `ExampleSentenceList`
-  plus a prompt-clause addition, same shape as the rest of that service).
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
   as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
   for the conversational practice partner (Phase 6), which will burn requests

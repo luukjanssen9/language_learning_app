@@ -21,6 +21,9 @@ class ExampleSentence(BaseModel):
 
 class ExampleSentenceList(BaseModel):
     examples: list[ExampleSentence]
+    # One per word, not per sentence -- see VocabularyExample.mnemonic's
+    # docstring for why this is a single shared field, not per-example.
+    mnemonic: str
 
 
 async def generate_example_sentences(
@@ -30,14 +33,17 @@ async def generate_example_sentences(
     target_text: str,
     part_of_speech: str | None,
     count: int = 3,
-) -> list[ExampleSentence]:
+) -> ExampleSentenceList:
     pos_clause = f" ({part_of_speech})" if part_of_speech else ""
     prompt = (
         f"Write {count} short, natural example sentences in {target_language_name} "
         f'that each use the word "{target_text}"{pos_clause}. '
         f"For each sentence, also give its {base_language_name} translation. "
         "Keep the sentences simple, everyday, and appropriate for a beginner "
-        "language learner."
+        "language learner.\n\n"
+        f'Also write one short, memorable mnemonic (in {base_language_name}) to help '
+        f'a learner remember "{target_text}" -- a vivid mental image, a sound-alike '
+        "in the learner's own language, or a word-association trick. One or two "
+        "sentences, not a whole paragraph."
     )
-    result = await llm.generate_structured(prompt, ExampleSentenceList, model_tier="fast")
-    return result.examples
+    return await llm.generate_structured(prompt, ExampleSentenceList, model_tier="fast")

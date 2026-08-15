@@ -44,6 +44,14 @@ export function VocabularyItemRow({
           {isError && (
             <p className="text-sm text-ink-soft">Couldn&apos;t generate examples. Try again.</p>
           )}
+          {examples?.[0]?.mnemonic && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-soft">
+                Mnemonic
+              </p>
+              <p className="text-sm text-ink">{examples[0].mnemonic}</p>
+            </div>
+          )}
           {examples?.map((example) => (
             <div key={example.id} className="text-sm">
               <p className="text-ink">{example.target_text}</p>

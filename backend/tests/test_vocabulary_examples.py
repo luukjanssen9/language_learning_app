@@ -74,7 +74,8 @@ async def test_generates_and_persists_examples_on_first_request(client: AsyncCli
                 ExampleSentence(target_text="¡Hola!", base_text="Hello!"),
                 ExampleSentence(target_text="Hola, ¿qué tal?", base_text="Hi, how's it going?"),
                 ExampleSentence(target_text="Hola de nuevo.", base_text="Hello again."),
-            ]
+            ],
+            mnemonic="Sounds like 'Oh, la!' -- a cheerful greeting.",
         )
     )
     app.dependency_overrides[get_llm_provider] = lambda: fake
@@ -85,6 +86,8 @@ async def test_generates_and_persists_examples_on_first_request(client: AsyncCli
     body = resp.json()
     assert len(body) == 3
     assert {e["target_text"] for e in body} == {"¡Hola!", "Hola, ¿qué tal?", "Hola de nuevo."}
+    # The one shared mnemonic is duplicated onto every persisted row.
+    assert {e["mnemonic"] for e in body} == {"Sounds like 'Oh, la!' -- a cheerful greeting."}
     assert fake.call_count == 1
 
 
@@ -93,7 +96,10 @@ async def test_second_request_serves_cached_examples_without_calling_llm_again(
 ):
     item = await _make_vocabulary_item(client)
     fake = FakeLLMProvider(
-        ExampleSentenceList(examples=[ExampleSentence(target_text="¡Hola!", base_text="Hello!")])
+        ExampleSentenceList(
+            examples=[ExampleSentence(target_text="¡Hola!", base_text="Hello!")],
+            mnemonic="Sounds like 'Oh, la!'",
+        )
     )
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
@@ -106,7 +112,7 @@ async def test_second_request_serves_cached_examples_without_calling_llm_again(
 
 async def test_examples_for_missing_vocabulary_item_returns_404(client: AsyncClient):
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
-        ExampleSentenceList(examples=[])
+        ExampleSentenceList(examples=[], mnemonic="")
     )
 
     resp = await client.get(f"/api/vocabulary-items/{uuid.uuid4()}/examples")

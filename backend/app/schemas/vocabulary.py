@@ -48,6 +48,7 @@ class VocabularyExampleRead(BaseModel):
     id: uuid.UUID
     target_text: str
     base_text: str
+    mnemonic: str | None
     created_at: datetime
 
 

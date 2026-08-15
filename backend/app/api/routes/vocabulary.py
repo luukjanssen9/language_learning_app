@@ -110,8 +110,9 @@ async def get_vocabulary_item_examples(
             vocabulary_item_id=item.id,
             target_text=example.target_text,
             base_text=example.base_text,
+            mnemonic=generated.mnemonic,
         )
-        for example in generated
+        for example in generated.examples
     ]
     db.add_all(examples)
     await db.commit()
