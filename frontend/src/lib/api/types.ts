@@ -402,3 +402,35 @@ export interface PasteInTranslatePayload {
 export interface PasteInTranslateResponse {
   translations: NewVocabularyWord[];
 }
+
+export interface WeakCard {
+  vocabulary_item_id: string;
+  target_text: string;
+  base_text: string;
+  deck_id: string;
+  deck_name: string;
+  lapses: number;
+}
+
+export interface WeakLessonWord {
+  vocabulary_item_id: string;
+  target_text: string;
+  base_text: string;
+  skill_id: string;
+  skill_name: string;
+  accuracy: number;
+  times_attempted: number;
+}
+
+export interface WeakSkill {
+  skill_id: string;
+  skill_name: string;
+  mastery_level: number;
+  times_attempted: number;
+}
+
+export interface WeakPointsResponse {
+  weak_cards: WeakCard[];
+  weak_lesson_words: WeakLessonWord[];
+  weak_skills: WeakSkill[];
+}

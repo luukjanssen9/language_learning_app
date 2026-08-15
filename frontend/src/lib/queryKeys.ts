@@ -39,4 +39,7 @@ export const queryKeys = {
   knownVocabulary: (courseId: string) => ["known-vocabulary", courseId] as const,
 
   readingPassages: (courseId: string) => ["reading-passages", courseId] as const,
+
+  weakPoints: (userId: string, courseId: string) =>
+    ["weak-points", userId, courseId] as const,
 };

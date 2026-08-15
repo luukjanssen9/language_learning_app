@@ -17,6 +17,7 @@ from app.api.routes import (
     user_progress,
     users,
     vocabulary,
+    weak_points,
 )
 
 api_router = APIRouter()
@@ -36,3 +37,4 @@ api_router.include_router(lesson_exercises.router)
 api_router.include_router(review_logs.router)
 api_router.include_router(user_progress.router)
 api_router.include_router(user_exercise_attempts.router)
+api_router.include_router(weak_points.router)

@@ -40,16 +40,15 @@ Living project plan and status log. Read at the start of every session; update C
   Gemini default), example generation, free-text grading, journal
   correction + auto vocab extraction, known-vocabulary system, reading
   passage generation, paste-in content with unknown-word flagging,
-  coverage-gap analysis vs. a CEFR/HSK-style list — done so far. Revised
-  remaining slice order (2026-08-14, see Decisions Log): adaptive
-  weak-point targeting (last — needs real attempt data from the earlier
-  slices). Generic
-  auto-card-generation dropped as its own slice (journal correction/
-  paste-in flagging cover it with real context attached); mnemonics folded
-  into the existing example-generation endpoint as an extra field rather
-  than a separate slice. Also: the Vocabulary course category
+  coverage-gap analysis vs. a CEFR/HSK-style list, adaptive weak-point
+  targeting — all slices built. Generic auto-card-generation dropped as
+  its own slice (journal correction/paste-in flagging cover it with real
+  context attached). Also: the Vocabulary course category
   (Greetings/Family) was retired in favor of a Reading category — see the
-  same decision log entry.
+  2026-08-14 decision log entry. **Not yet checked off**: mnemonics was
+  decided (2026-08-13) to fold into the example-generation endpoint as an
+  extra field rather than get its own slice, but that field was never
+  actually added — see Known Issues.
 - [ ] **Phase 6 — Conversational practice partner**: chat UI, roleplay
   scenarios constrained to known vocabulary, in-context correction.
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
@@ -1639,10 +1638,86 @@ gap words and a capped "Review these words" link only appear when
 `gapWords.length > 0`; clicked through into paste-in and confirmed every
 flagged gap word matched what the coverage panel reported missing.
 
+**2026-08-15 — Adaptive weak-point targeting (Phase 5, final slice), complete
+and verified end-to-end.** Last remaining Phase 5 slice, deliberately saved for
+last since it needs real attempt data from every earlier slice to have anything
+meaningful to surface — that data now exists from this session's own extensive
+testing. Confirmed with the user (AskUserQuestion) on three open design
+questions before building: **surface** is a new section on the dashboard (`/`,
+above the deck list) rather than a `/course` category or a new standalone
+page/nav item; **signals** blend all three available sources (FSRS `Card`
+lapses, per-word lesson-exercise accuracy, per-skill mastery) rather than
+picking one; **action** is v1-scoped to a ranked list linking into existing
+review/lesson flows, no new LLM generation this slice.
+
+**Backend**: new `app/services/weak_points.py`, three independent queries —
+`get_weak_cards` (`Card.lapses >= 1`, joined through `Deck` for
+user/course scoping and the review link, cards with no `vocabulary_item_id`
+excluded), `get_weak_lesson_words` (`UserExerciseAttempt` joined through
+`LessonExerciseVocabulary` — the join table `lesson_exercise.py` already
+flagged as built for exactly this — grouped by `(word, skill)`, not word
+alone, so a word drilled in multiple skills surfaces once per skill), and
+`get_weak_skills` (plain `UserProgress.mastery_level` — already exactly this
+signal, needing no new computation, maintained incrementally by
+`submit_lesson_exercise_attempt`). All three share `MIN_ATTEMPTS = 2` /
+`MAX_ACCURACY = MAX_MASTERY = 0.7` thresholds so a single wrong answer never
+reads as "weak." New `GET /weak-points?user_id=&course_id=` (both required)
+bundles all three into one `WeakPointsResponse`. 5 new tests (161 total, all
+passing on the first run), `ruff` clean.
+
+**Frontend**: `WeakPointsPanel` (presentational) renders up to three
+sub-sections — a sub-section with no items doesn't render, and the whole panel
+doesn't render if all three are empty (a fresh course with no attempt history
+shows nothing, not empty headers). Weak cards link to
+`/decks/{deck_id}/review`; weak lesson words and weak skills both link to
+`/skills/{skill_id}/lesson`. Wired into `frontend/src/app/page.tsx`.
+
+**A real gap found and fixed live, not by review**: the dashboard (`/`) has
+no `CourseProvider` in its tree — unlike every other top-level section
+(`course/`, `journal/`, `known-vocabulary/`, `paste-in/`, `vocabulary/`, each
+with their own `layout.tsx` instantiating one), because the dashboard's deck
+list has always deliberately spanned every course, never needing course
+scoping before. `useCourseContext()` threw immediately on load
+("`useCourseContext` must be used within `CourseProvider`"). Fixed by
+splitting `page.tsx` into an exported `DashboardPage` that wraps a new
+`DashboardContent` in `<CourseProvider>` — same "re-instantiated per section,
+not shared from the root layout" convention as the others, just living in
+`page.tsx` itself since `/` has no dedicated route-segment folder to hang a
+layout.tsx off of. Deliberately no `CourseSwitcher` added to the dashboard
+(the deck list still isn't course-filtered; a switcher that only visibly
+affects one panel would be confusing) — `selectedCourseId` falls back to the
+bootstrap course by default, same as everywhere else.
+
+**Verified live**: with the currently-selected course (Chinese) genuinely
+having zero qualifying weak points, the panel correctly rendered nothing
+(confirmed both via direct `curl` and the browser). Switched to Spanish (real
+accumulated data): the panel showed "Desire / Wish — 67% mastery" under
+Skills to revisit, correctly landing on that skill's lesson intro screen when
+clicked. Submitted one real "Again" FSRS review live to produce a genuine
+`lapses: 1` on an existing card, confirmed it then appeared under Struggling
+flashcards and correctly linked to `/decks/{deck_id}/review` (landing on that
+deck's live due-queue, not necessarily that exact card, since the queue is
+due-only — a known, documented simplification, not a bug). `weak_lesson_words`
+wasn't separately live-tested (no real data currently crosses its threshold)
+but shares the identical link code path already confirmed for weak skills,
+on top of its own dedicated backend and frontend tests. 6 new
+`WeakPointsPanel.test.tsx` tests (85 frontend tests total), `tsc`/`eslint`
+clean.
+
 ## Current Status
 
-**As of 2026-08-14:**
+**As of 2026-08-15:**
 
+- Done: **Adaptive weak-point targeting (Phase 5, final slice), complete and
+  verified end-to-end** — a new `GET /weak-points` endpoint blending FSRS
+  card lapses, per-word lesson-exercise accuracy, and per-skill mastery into
+  a ranked "Weak points" panel on the dashboard, each item linking into an
+  existing review/lesson flow. All Phase 5 slices are now built (mnemonics'
+  "fold into example-generation" decision is the one open exception — see
+  Known Issues). Includes a real gap found and fixed live: the dashboard had
+  no `CourseProvider` in its tree (unlike every other section) since its
+  deck list never needed course-scoping before — see the decision log entry
+  just above for the full breakdown.
 - Done: **Coverage-gap analysis vs. a CEFR/HSK-style list (Phase 5), complete
   and verified end-to-end** — a new `/known-vocabulary/full-set` endpoint, a
   `CoveragePanel` on `/known-vocabulary` showing per-band known-word coverage
@@ -1811,15 +1886,25 @@ flagged gap word matched what the coverage panel reported missing.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: adaptive weak-point targeting, the last remaining Phase 5 slice per
-  the revised order (see the 2026-08-14 "Vocabulary → Reading" decision
-  entry) — needs real attempt data from the earlier slices, which now all
-  exist. Checkpoint with the user first per this project's per-slice
+- Next: Phase 6 (conversational practice partner) — chat UI, roleplay
+  scenarios constrained to known vocabulary, in-context correction. All of
+  Phase 5's planned slices are now built except the small, still-open
+  mnemonics gap (see Known Issues) — worth a quick decision (fold it in now
+  as a small addendum, or fold it into Phase 6 prep) before starting Phase 6
+  in earnest. Checkpoint with the user first per this project's per-slice
   cadence.
-- Open questions: none blocking.
+- Open questions: whether to close the mnemonics gap before or alongside
+  starting Phase 6 (see Known Issues) — not blocking, just undecided.
 
 ## Known Issues / Follow-ups
 
+- **Mnemonics gap**: the 2026-08-13 Phase 5 kickoff decided mnemonics would
+  fold into the existing example-generation endpoint (`generate_example_sentences`
+  in `app/services/sentence_generation.py`) as an extra field rather than get
+  its own slice — that field was never actually added. Found while closing
+  out Phase 5's checklist entry for the weak-point-targeting slice; small,
+  well-scoped whenever picked up (one more field on `ExampleSentenceList`
+  plus a prompt-clause addition, same shape as the rest of that service).
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
   as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
   for the conversational practice partner (Phase 6), which will burn requests
