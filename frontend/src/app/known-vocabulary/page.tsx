@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { CoveragePanel } from "@/components/knownVocabulary/CoveragePanel";
 import { KnownVocabularyRow } from "@/components/knownVocabulary/KnownVocabularyRow";
 import { useDecks } from "@/hooks/useDecks";
 import {
   useAddKnownVocabulary,
   useDeleteKnownVocabulary,
   useKnownVocabularyItems,
+  useKnownWordSet,
   usePromoteKnownVocabulary,
 } from "@/hooks/useKnownVocabulary";
+import { computeCoverage } from "@/lib/coverageAnalysis";
 import { getFrequencyBands } from "@/lib/frequencyBands";
 import type { KnownVocabularyItem } from "@/lib/api/types";
 import { useCourseContext } from "@/providers/CourseProvider";
@@ -18,6 +21,7 @@ export default function KnownVocabularyPage() {
   const { selectedCourseId, selectedTargetLanguage } = useCourseContext();
   const { data: decks = [] } = useDecks();
   const { data: items = [], isPending } = useKnownVocabularyItems(selectedCourseId);
+  const { data: fullSet } = useKnownWordSet(selectedCourseId);
   const addItem = useAddKnownVocabulary();
   const deleteItem = useDeleteKnownVocabulary();
   const promoteItem = usePromoteKnownVocabulary();
@@ -26,9 +30,8 @@ export default function KnownVocabularyPage() {
   const [query, setQuery] = useState("");
 
   const courseDecks = decks.filter((d) => d.course_id === selectedCourseId);
-  const hasPlacementCheck =
-    selectedTargetLanguage !== undefined &&
-    getFrequencyBands(selectedTargetLanguage.code) !== null;
+  const bands = selectedTargetLanguage ? getFrequencyBands(selectedTargetLanguage.code) : null;
+  const hasPlacementCheck = bands !== null;
 
   const filteredItems = items.filter((item) =>
     item.target_text.includes(query.trim().toLowerCase()),
@@ -54,6 +57,10 @@ export default function KnownVocabularyPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {bands && fullSet && (
+        <CoveragePanel coverage={computeCoverage(bands, fullSet.words)} />
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <form onSubmit={handleAdd} className="flex gap-2">
           <input

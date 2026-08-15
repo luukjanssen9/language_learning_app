@@ -14,6 +14,7 @@ from app.models.known_vocabulary import KnownVocabularyItem
 from app.models.language import Language
 from app.schemas.card import CardQuickAddResponse, CardRead
 from app.schemas.known_vocabulary import (
+    FullKnownWordSetResponse,
     KnownVocabularyBulkCreate,
     KnownVocabularyBulkCreateResponse,
     KnownVocabularyItemCreate,
@@ -21,6 +22,7 @@ from app.schemas.known_vocabulary import (
     KnownVocabularyPromote,
 )
 from app.schemas.vocabulary import VocabularyItemRead
+from app.services.known_vocabulary_lookup import get_full_known_word_set
 from app.services.llm import LLMProvider, get_llm_provider
 from app.services.note_cards import get_or_create_vocabulary_item_and_cards
 from app.services.word_translation import translate_word
@@ -38,6 +40,20 @@ async def list_known_vocabulary(
         .order_by(KnownVocabularyItem.target_text)
     )
     return list(result.scalars().all())
+
+
+@router.get("/full-set", response_model=FullKnownWordSetResponse)
+async def get_known_vocabulary_full_set(
+    course_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> FullKnownWordSetResponse:
+    """The complete, normalized known-word set (mastered `Card`s + all
+    `KnownVocabularyItem` rows, no sampling) -- see PLAN.md's
+    "coverage-gap analysis" decision for why this needs the full set
+    rather than `get_known_words_for_passage`'s prompt-budget-capped
+    sample. Sorted for a deterministic response.
+    """
+    words = await get_full_known_word_set(db, course_id)
+    return FullKnownWordSetResponse(words=sorted(words))
 
 
 @router.post("", response_model=KnownVocabularyItemRead, status_code=status.HTTP_201_CREATED)

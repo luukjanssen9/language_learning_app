@@ -13,6 +13,17 @@ export function useKnownVocabularyItems(courseId: string) {
   });
 }
 
+// The flat, complete known-word set (mastered Cards + all
+// KnownVocabularyItem rows, no sampling) -- for coverage-gap analysis,
+// which needs exact membership testing rather than useKnownVocabularyItems'
+// row objects (which only cover the estimated half, not mastered Cards).
+export function useKnownWordSet(courseId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.knownVocabulary(courseId), "full-set"],
+    queryFn: () => knownVocabularyApi.fullSet(courseId),
+  });
+}
+
 export function useAddKnownVocabulary() {
   const queryClient = useQueryClient();
   return useMutation({

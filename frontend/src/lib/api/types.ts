@@ -373,6 +373,10 @@ export interface KnownVocabularyPromotePayload {
   deck_id: string;
 }
 
+export interface KnownVocabularyFullSetResponse {
+  words: string[];
+}
+
 export interface PasteInSegment {
   text: string;
   is_word: boolean;

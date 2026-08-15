@@ -32,3 +32,11 @@ class KnownVocabularyPromote(BaseModel):
 
 class KnownVocabularyBulkCreateResponse(BaseModel):
     inserted_count: int
+
+
+class FullKnownWordSetResponse(BaseModel):
+    """The complete, normalized known-word set for a course -- see
+    `get_full_known_word_set` (app/services/known_vocabulary_lookup.py).
+    """
+
+    words: list[str]

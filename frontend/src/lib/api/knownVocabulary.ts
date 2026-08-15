@@ -3,6 +3,7 @@ import type {
   CardQuickAddResponse,
   KnownVocabularyBulkCreatePayload,
   KnownVocabularyBulkCreateResponse,
+  KnownVocabularyFullSetResponse,
   KnownVocabularyItem,
   KnownVocabularyItemCreatePayload,
   KnownVocabularyPromotePayload,
@@ -12,6 +13,10 @@ export const knownVocabularyApi = {
   list: (courseId: string) =>
     api.get<KnownVocabularyItem[]>(
       `/known-vocabulary?${new URLSearchParams({ course_id: courseId })}`,
+    ),
+  fullSet: (courseId: string) =>
+    api.get<KnownVocabularyFullSetResponse>(
+      `/known-vocabulary/full-set?${new URLSearchParams({ course_id: courseId })}`,
     ),
   create: (payload: KnownVocabularyItemCreatePayload) =>
     api.post<KnownVocabularyItem>("/known-vocabulary", payload),

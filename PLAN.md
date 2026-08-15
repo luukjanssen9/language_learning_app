@@ -39,10 +39,11 @@ Living project plan and status log. Read at the start of every session; update C
 - [ ] **Phase 5 — Core AI/NLP features**: LLM service layer (provider-agnostic,
   Gemini default), example generation, free-text grading, journal
   correction + auto vocab extraction, known-vocabulary system, reading
-  passage generation, paste-in content with unknown-word flagging — done
-  so far. Revised remaining slice order (2026-08-14, see Decisions Log):
-  coverage-gap analysis, adaptive weak-point targeting (last — needs real
-  attempt data from the earlier slices). Generic
+  passage generation, paste-in content with unknown-word flagging,
+  coverage-gap analysis vs. a CEFR/HSK-style list — done so far. Revised
+  remaining slice order (2026-08-14, see Decisions Log): adaptive
+  weak-point targeting (last — needs real attempt data from the earlier
+  slices). Generic
   auto-card-generation dropped as its own slice (journal correction/
   paste-in flagging cover it with real context attached); mnemonics folded
   into the existing example-generation endpoint as an extra field rather
@@ -1585,10 +1586,71 @@ either conjugated surface form). 2 new backend tests (155 total), 4 new
 frontend tests (66 total), all existing suites still green,
 `ruff`/`tsc`/`eslint` clean.
 
+**2026-08-14 — Coverage-gap analysis vs. a CEFR/HSK-style list (Phase 5), complete
+and verified end-to-end.** Crosses the two existing known-vocabulary data
+sources against the bundled frequency-band/HSK reference data: for each band,
+how much of it the user actually knows, and which specific words are the
+gaps. Deliberately reused more than it built: a new thin `GET
+/known-vocabulary/full-set` endpoint is the only backend addition (returns
+`get_full_known_word_set`'s existing union of mastered `Card`s +
+`KnownVocabularyItem` rows, sorted, uncapped — the paste-in slice's lookup
+already did the real work); the "close this gap" action doesn't add new
+review UI at all, it sends the user into the already-built paste-in flow
+(tokenize → flag → batch-translate → add-to-deck/mark-known), pre-filled with
+that band's missing words via `/paste-in?text=...`, rather than a third
+translate-and-review UI. New pure `lib/coverageAnalysis.ts`
+(`computeCoverage`) and a presentational `CoveragePanel` (aggregate stat,
+per-band progress bar, expand-to-see-gap-words, capped "Review these words"
+link) wired into `/known-vocabulary`.
+
+**A real, reproducible bug found and fixed live, not by review**: clicking
+"Review these words" lands on `/paste-in?text=...`, which auto-runs analysis
+on mount instead of making the user click Analyze again. The first version of
+that auto-run (`useEffect` calling `analyze.mutateAsync` directly, guarded by
+a `useRef` so React Strict Mode's dev-only double-invoke didn't fire it
+twice) reproducibly got stuck showing "Analyzing…" forever — even though the
+backend had already returned 200 OK. Root-caused by inspecting the
+QueryClient's mutation cache directly (`getMutationCache().getAll()`): the
+mutation had genuinely resolved to `"success"` in the cache, but the
+component's own `analyze.isPending` never flipped, meaning the hook's
+subscription didn't survive Strict Mode's synchronous mount → cleanup →
+remount cycle intact. Confirmed dev-only by toggling `reactStrictMode: false`
+in `next.config.ts`, which made the bug disappear entirely — production
+builds never double-invoke, so real users could never hit this. Fixed
+properly (Strict Mode left on) by deferring the `mutateAsync` call with
+`setTimeout(..., 0)` inside the effect, with a cleanup that clears the timer;
+the ref guarding "has this already run" isn't flipped until the timer
+actually *fires*, so the phantom first invocation's timer gets cleared by its
+own cleanup before it runs, and only the second, real, settled effect
+instance's timer fires — landing the `mutateAsync` call safely after Strict
+Mode's double-invoke dance has already finished. Re-verified 3x live after
+the fix: direct URL navigation (twice, fresh tabs) and the real
+`<CoveragePanel>` → `<Link>` click-through path, all landing cleanly with the
+highlighted text and translated (correctly lemmatized) glossary rendered on
+the first try.
+
+**Verified**: 1 new backend test (156 total), `ruff` clean. 6 new
+`coverageAnalysis.test.ts` tests + 7 new `CoveragePanel.test.tsx` tests (79
+frontend tests total), `tsc`/`eslint` clean. Live: `/known-vocabulary` for
+Spanish showed real per-band stats (2,439/4,000 words, 61% — fully known
+through rank 2,400, then dropping to 2-3% beyond it, matching the known
+dev-DB word counts from earlier sessions); expanded a bare band, confirmed
+gap words and a capped "Review these words" link only appear when
+`gapWords.length > 0`; clicked through into paste-in and confirmed every
+flagged gap word matched what the coverage panel reported missing.
+
 ## Current Status
 
 **As of 2026-08-14:**
 
+- Done: **Coverage-gap analysis vs. a CEFR/HSK-style list (Phase 5), complete
+  and verified end-to-end** — a new `/known-vocabulary/full-set` endpoint, a
+  `CoveragePanel` on `/known-vocabulary` showing per-band known-word coverage
+  with expandable gap-word lists, and a "Review these words" link into the
+  existing paste-in flow pre-filled with each band's gaps. Includes a real
+  React Strict Mode / React Query dev-only bug found and fixed live (auto-run
+  analysis on mount got stuck on "Analyzing…" forever) — see the decision log
+  entry just above for the full breakdown.
 - Done: **Paste-in content with unknown-word flagging (Phase 5), complete
   and verified end-to-end across Spanish and Chinese** — real Chinese word
   segmentation via `jieba`, an uncapped known-vocabulary lookup, instant
@@ -1749,19 +1811,15 @@ frontend tests (66 total), all existing suites still green,
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: coverage-gap analysis vs. a CEFR/HSK-style list, the next Phase 5
-  slice per the revised order (see the 2026-08-14 "Vocabulary → Reading"
-  decision entry) — shares the known-vocabulary system's prerequisite data
-  (frequency-band data + known-words data), "cheap" in effort now that
-  both exist. Checkpoint with the user first per this project's per-slice
+- Next: adaptive weak-point targeting, the last remaining Phase 5 slice per
+  the revised order (see the 2026-08-14 "Vocabulary → Reading" decision
+  entry) — needs real attempt data from the earlier slices, which now all
+  exist. Checkpoint with the user first per this project's per-slice
   cadence.
 - Open questions: none blocking.
 
 ## Known Issues / Follow-ups
 
-- Coverage-gap analysis shares the known-vocabulary system's prerequisite
-  (frequency-band data + known-words data) — don't schedule it before that
-  work exists, even though it's cheap once it does.
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
   as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
   for the conversational practice partner (Phase 6), which will burn requests

@@ -8,8 +8,11 @@ import uuid
 
 from httpx import AsyncClient
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
+from app.models.card import Card
+from app.models.enums import CardDirection, CardState
 from app.services.llm import get_llm_provider
 from app.services.llm.base import ModelTier
 from app.services.word_translation import WordTranslation
@@ -202,3 +205,37 @@ async def test_promoting_a_word_that_already_exists_as_vocabulary_item_reuses_it
 
     list_resp = await client.get("/api/vocabulary-items", params={"course_id": deck["course_id"]})
     assert len(list_resp.json()) == 1
+
+
+async def test_full_set_unions_manual_entries_and_mastered_cards(
+    client: AsyncClient, db_session: AsyncSession
+):
+    deck = await _make_deck(client)
+    await client.post(
+        "/api/known-vocabulary", json={"course_id": deck["course_id"], "target_text": "Hola"}
+    )
+    item = (
+        await client.post(
+            "/api/vocabulary-items",
+            json={"course_id": deck["course_id"], "target_text": "perro", "base_text": "dog"},
+        )
+    ).json()
+    # A REVIEW-state card has no HTTP path without real FSRS review timing
+    # -- inserted directly via db_session, same convention used in
+    # test_paste_in.py's equivalent fixture.
+    db_session.add(
+        Card(
+            deck_id=uuid.UUID(deck["id"]),
+            vocabulary_item_id=uuid.UUID(item["id"]),
+            direction=CardDirection.TARGET_TO_BASE,
+            state=CardState.REVIEW,
+        )
+    )
+    await db_session.flush()
+
+    resp = await client.get(
+        "/api/known-vocabulary/full-set", params={"course_id": deck["course_id"]}
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["words"] == ["hola", "perro"]  # sorted, normalized
