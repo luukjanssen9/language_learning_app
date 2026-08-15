@@ -24,6 +24,16 @@ export function useKnownWordSet(courseId: string) {
   });
 }
 
+// The "known but never touched the known-vocabulary system" half of what
+// the known-vocabulary page shows as known -- words mastered purely
+// through normal deck review, complementing useKnownVocabularyItems above.
+export function useMasteredVocabulary(courseId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.knownVocabulary(courseId), "mastered"],
+    queryFn: () => knownVocabularyApi.mastered(courseId),
+  });
+}
+
 export function useAddKnownVocabulary() {
   const queryClient = useQueryClient();
   return useMutation({

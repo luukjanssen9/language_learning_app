@@ -12,6 +12,7 @@ from app.models.deck import Deck
 from app.models.enums import KnownVocabularySource
 from app.models.known_vocabulary import KnownVocabularyItem
 from app.models.language import Language
+from app.models.vocabulary import VocabularyItem
 from app.schemas.card import CardQuickAddResponse, CardRead
 from app.schemas.known_vocabulary import (
     FullKnownWordSetResponse,
@@ -22,7 +23,10 @@ from app.schemas.known_vocabulary import (
     KnownVocabularyPromote,
 )
 from app.schemas.vocabulary import VocabularyItemRead
-from app.services.known_vocabulary_lookup import get_full_known_word_set
+from app.services.known_vocabulary_lookup import (
+    get_full_known_word_set,
+    get_mastered_vocabulary_items,
+)
 from app.services.llm import LLMProvider, get_llm_provider
 from app.services.note_cards import get_or_create_vocabulary_item_and_cards
 from app.services.word_translation import translate_word
@@ -54,6 +58,20 @@ async def get_known_vocabulary_full_set(
     """
     words = await get_full_known_word_set(db, course_id)
     return FullKnownWordSetResponse(words=sorted(words))
+
+
+@router.get("/mastered", response_model=list[VocabularyItemRead])
+async def list_mastered_vocabulary(
+    course_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[VocabularyItem]:
+    """Full details (target_text, base_text, part_of_speech) for every word
+    mastered via FSRS review -- the "known but never touched the
+    known-vocabulary system" half of what the known-vocabulary page shows
+    as known, complementing this router's `KnownVocabularyItem`-backed
+    endpoints above. See PLAN.md's 2026-08-15 decision.
+    """
+    items = await get_mastered_vocabulary_items(db, course_id)
+    return sorted(items, key=lambda item: item.target_text)
 
 
 @router.post("", response_model=KnownVocabularyItemRead, status_code=status.HTTP_201_CREATED)

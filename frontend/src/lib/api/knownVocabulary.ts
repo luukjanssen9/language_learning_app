@@ -7,6 +7,7 @@ import type {
   KnownVocabularyItem,
   KnownVocabularyItemCreatePayload,
   KnownVocabularyPromotePayload,
+  VocabularyItem,
 } from "./types";
 
 export const knownVocabularyApi = {
@@ -17,6 +18,10 @@ export const knownVocabularyApi = {
   fullSet: (courseId: string) =>
     api.get<KnownVocabularyFullSetResponse>(
       `/known-vocabulary/full-set?${new URLSearchParams({ course_id: courseId })}`,
+    ),
+  mastered: (courseId: string) =>
+    api.get<VocabularyItem[]>(
+      `/known-vocabulary/mastered?${new URLSearchParams({ course_id: courseId })}`,
     ),
   create: (payload: KnownVocabularyItemCreatePayload) =>
     api.post<KnownVocabularyItem>("/known-vocabulary", payload),

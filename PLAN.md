@@ -1821,10 +1821,54 @@ tests (90 frontend tests total) — the two page components themselves
 and left to live-browser verification only, per this project's established
 convention. `tsc`/`eslint` clean.
 
+**2026-08-15 — Known-vocabulary page now shows the full known set, not just
+the tracked half.** User flagged the Vocabulary and Known-words pages as
+feeling redundant. Diagnosis, not a merge: they answer different questions
+(Vocabulary is the flashcard/deck catalog with study tools; Known words is
+the calibration signal reading features -- passage generation, roleplay
+chat, coverage-gap analysis -- use to know what *not* to re-teach), but the
+Known-words page had a real gap: a word mastered purely through normal deck
+review (never touched via placement check, manual add, or promotion) counts
+as "known" everywhere `get_full_known_word_set` is used, yet never showed
+up as a row on the page itself, since its list endpoint only ever queried
+`KnownVocabularyItem`, not mastered `Card`s.
+
+Fixed by adding `get_mastered_vocabulary_items` (`known_vocabulary_lookup.py`
+-- `_get_mastered_words` now a thin wrapper over it, same join, no
+duplicated query logic) and a new `GET /known-vocabulary/mastered` route
+returning full `VocabularyItemRead` details, not just bare strings like
+`/full-set` -- the page needs a translation to show, not just a word.
+Existing `GET /known-vocabulary` (used by 3 callers: this page, paste-in,
+reading-passages) deliberately left untouched; the new data is fetched via
+a separate `useMasteredVocabulary` hook and rendered as its own "Mastered
+flashcards" section, deduped against the tracked list by normalized
+target_text so a promoted-then-mastered word doesn't appear twice. No
+Promote button (already has a card) or Remove button (deleting a flashcard
+is a real, more consequential action that belongs on the deck page) on
+these rows -- read-only, matching what they actually are.
+
+Also resolved in the same conversation: the native-language vocabulary
+builder idea from Known Issues needs no engineering at all -- it's just an
+ordinary deck in a base=target=English course. Marked resolved there.
+
+**Verified**: 2 new backend tests (173 total: mastered-endpoint details +
+excludes non-REVIEW cards, dedupes a word with multiple mastered cards
+across directions), `ruff` clean. 2 new `MasteredVocabularyRow.test.tsx`
+tests (92 frontend total), `tsc`/`eslint` clean. Live: real Spanish course
+data showed 18 genuinely untracked mastered words in the new section;
+confirmed the shared search box filters both sections correctly and that
+the "no match" message for the tracked list points the user at the
+Mastered flashcards section when a query matches there instead.
+
 ## Current Status
 
 **As of 2026-08-15:**
 
+- Done: **Known-vocabulary page now shows the full known set** (mastered
+  flashcards + tracked known-vocabulary items, not just the latter) — see
+  the decision log entry just above for the full breakdown. Also resolved
+  in passing: the native-language vocabulary builder idea needs no new
+  engineering, just an ordinary deck in a base=target=English course.
 - Done: **Conversational practice partner (Phase 6), complete and verified
   end-to-end** — pre-authored roleplay scenarios, multi-turn chat (a new
   `generate_chat_reply` method on `LLMProvider`, since the existing
@@ -2087,10 +2131,11 @@ convention. `tsc`/`eslint` clean.
   Decisions Log entry** ("Conjugation/subjunctive feature design
   resolved") for the schema, exercise-type, and v1-scope decisions.
 
-- **Native-language vocabulary builder (requested 2026-08-13, not yet
-  scheduled)** — a separate, lower-priority idea: an Anki-like tool for
-  building vocabulary in the user's *native* language (e.g. advanced/"big"
-  English words), not L2 acquisition. User suggested this as possibly its
-  own distinct section of the site, "maybe at the end." Not yet added as a
-  numbered phase — ask the user whether this becomes its own Phase 9+ or
-  stays a loose idea when it's actually time to consider it.
+- ~~**Native-language vocabulary builder (requested 2026-08-13)**~~ —
+  **resolved 2026-08-15, no engineering needed.** Originally floated as a
+  possible new Phase 9+ section; user pointed out it's just an ordinary
+  Anki deck in the existing deck system (target_text = an advanced English
+  word, base_text = its definition), inside a course where base and target
+  language both happen to be English. Nothing in the schema prevents that
+  — `Course.base_language_id`/`target_language_id` are two independent FKs
+  to `Language` with no constraint forcing them apart.

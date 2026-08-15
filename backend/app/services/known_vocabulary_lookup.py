@@ -30,17 +30,32 @@ from app.models.vocabulary import VocabularyItem
 from app.services.text_normalize import normalize_for_comparison
 
 
-async def _get_mastered_words(db: AsyncSession, course_id: uuid.UUID) -> list[str]:
-    """A `Card` that's graduated to `REVIEW` -- ground truth, an existing
-    FSRS signal, not a new tuned threshold.
+async def get_mastered_vocabulary_items(
+    db: AsyncSession, course_id: uuid.UUID
+) -> list[VocabularyItem]:
+    """Full `VocabularyItem` rows for every word with at least one `Card`
+    graduated to `REVIEW` -- ground truth, an existing FSRS signal, not a
+    new tuned threshold. `.distinct()` because a word can have more than
+    one mastered `Card` (e.g. both directions of a dual-direction note).
+
+    Used both by `_get_mastered_words` below (just the text, for prompt
+    injection) and directly by the known-vocabulary page's "Mastered
+    flashcards" section, which needs the full row (target_text, base_text,
+    part_of_speech) -- see PLAN.md's 2026-08-15 "known words shows the
+    full known set" decision for why that page needs more than bare text.
     """
     result = await db.execute(
-        select(VocabularyItem.target_text)
+        select(VocabularyItem)
         .join(Card, Card.vocabulary_item_id == VocabularyItem.id)
         .where(VocabularyItem.course_id == course_id, Card.state == CardState.REVIEW)
         .distinct()
     )
     return list(result.scalars().all())
+
+
+async def _get_mastered_words(db: AsyncSession, course_id: uuid.UUID) -> list[str]:
+    items = await get_mastered_vocabulary_items(db, course_id)
+    return [item.target_text for item in items]
 
 
 async def _get_estimated_words(db: AsyncSession, course_id: uuid.UUID) -> list[str]:

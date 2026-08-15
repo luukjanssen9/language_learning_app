@@ -239,3 +239,85 @@ async def test_full_set_unions_manual_entries_and_mastered_cards(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["words"] == ["hola", "perro"]  # sorted, normalized
+
+
+async def test_mastered_returns_full_details_and_excludes_non_review_cards(
+    client: AsyncClient, db_session: AsyncSession
+):
+    deck = await _make_deck(client)
+    mastered_item = (
+        await client.post(
+            "/api/vocabulary-items",
+            json={"course_id": deck["course_id"], "target_text": "perro", "base_text": "dog"},
+        )
+    ).json()
+    new_item = (
+        await client.post(
+            "/api/vocabulary-items",
+            json={"course_id": deck["course_id"], "target_text": "gato", "base_text": "cat"},
+        )
+    ).json()
+    db_session.add_all(
+        [
+            Card(
+                deck_id=uuid.UUID(deck["id"]),
+                vocabulary_item_id=uuid.UUID(mastered_item["id"]),
+                direction=CardDirection.TARGET_TO_BASE,
+                state=CardState.REVIEW,
+            ),
+            # Not yet mastered -- should be excluded.
+            Card(
+                deck_id=uuid.UUID(deck["id"]),
+                vocabulary_item_id=uuid.UUID(new_item["id"]),
+                direction=CardDirection.TARGET_TO_BASE,
+                state=CardState.NEW,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    resp = await client.get(
+        "/api/known-vocabulary/mastered", params={"course_id": deck["course_id"]}
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["target_text"] == "perro"
+    assert body[0]["base_text"] == "dog"
+
+
+async def test_mastered_dedupes_a_word_with_multiple_mastered_cards(
+    client: AsyncClient, db_session: AsyncSession
+):
+    deck = await _make_deck(client)
+    item = (
+        await client.post(
+            "/api/vocabulary-items",
+            json={"course_id": deck["course_id"], "target_text": "perro", "base_text": "dog"},
+        )
+    ).json()
+    db_session.add_all(
+        [
+            Card(
+                deck_id=uuid.UUID(deck["id"]),
+                vocabulary_item_id=uuid.UUID(item["id"]),
+                direction=CardDirection.TARGET_TO_BASE,
+                state=CardState.REVIEW,
+            ),
+            Card(
+                deck_id=uuid.UUID(deck["id"]),
+                vocabulary_item_id=uuid.UUID(item["id"]),
+                direction=CardDirection.BASE_TO_TARGET,
+                state=CardState.REVIEW,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    resp = await client.get(
+        "/api/known-vocabulary/mastered", params={"course_id": deck["course_id"]}
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()) == 1
