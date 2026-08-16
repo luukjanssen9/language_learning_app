@@ -33,6 +33,13 @@ def _fake_verifier(identity: GoogleIdentity) -> Callable[[str], Awaitable[Google
     return verify
 
 
+def _fake_verifier_that_rejects() -> Callable[[str], Awaitable[GoogleIdentity]]:
+    async def verify(credential: str) -> GoogleIdentity:
+        raise AuthError("Invalid Google credential")
+
+    return verify
+
+
 def test_session_token_round_trips():
     user_id = uuid.uuid4()
     token = create_session_token(user_id)
@@ -115,6 +122,22 @@ async def test_second_distinct_account_after_claim_creates_a_new_user(
 
     assert first_resp.json()["id"] != second_resp.json()["id"]
     assert second_resp.json()["email"] == "b@example.com"
+
+
+async def test_google_sign_in_with_an_invalid_credential_is_401_not_500(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """Regression test for app/main.py's global `AuthError` handler --
+    without it, a rejected credential from `verify()` propagates as an
+    uncaught exception and leaks a 500 with a stack trace instead of a
+    clean 401 (found live once, per the handler's own comment; this test
+    guards against it recurring).
+    """
+    app.dependency_overrides[get_google_token_verifier] = lambda: _fake_verifier_that_rejects()
+
+    resp = await client.post("/api/auth/google", json={"credential": "bad-credential"})
+
+    assert resp.status_code == 401
 
 
 async def test_me_requires_a_valid_session(client: AsyncClient, db_session: AsyncSession):

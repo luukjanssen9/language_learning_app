@@ -29,6 +29,11 @@ class FakeTTSClient:
         return FakeTTSResponse(self.audio_content)
 
 
+class FailingTTSClient:
+    async def synthesize_speech(self, input, voice, audio_config):
+        raise RuntimeError("Google Cloud TTS is unreachable")
+
+
 async def _make_vocabulary_item(
     client: AsyncClient, login_as, *, target_grammar_config: dict | None = None
 ) -> dict:
@@ -126,6 +131,19 @@ async def test_audio_for_missing_vocabulary_item_returns_404(client: AsyncClient
     resp = await client.get(f"/api/vocabulary-items/{uuid.uuid4()}/audio")
 
     assert resp.status_code == 404
+
+
+async def test_tts_provider_failure_is_502_not_500(client: AsyncClient, login_as):
+    """Regression test for app/main.py's global `TTSError` handler --
+    without it, a Google Cloud TTS failure propagates as an uncaught
+    exception and leaks a 500 instead of a clean 502.
+    """
+    item = await _make_vocabulary_item(client, login_as, target_grammar_config=TTS_CONFIG)
+    app.dependency_overrides[get_tts_client] = lambda: FailingTTSClient()
+
+    resp = await client.get(f"/api/vocabulary-items/{item['id']}/audio")
+
+    assert resp.status_code == 502
 
 
 async def test_audio_for_someone_elses_vocabulary_item_is_403(client: AsyncClient, login_as):

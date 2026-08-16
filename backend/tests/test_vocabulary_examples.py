@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.main import app
 from app.services.llm import get_llm_provider
-from app.services.llm.base import ModelTier
+from app.services.llm.base import LLMError, ModelTier
 from app.services.sentence_generation import ExampleSentence, ExampleSentenceList
 
 
@@ -27,6 +27,13 @@ class FakeLLMProvider:
     ) -> BaseModel:
         self.call_count += 1
         return self.canned_response
+
+
+class FailingLLMProvider:
+    async def generate_structured(
+        self, prompt: str, response_model: type, model_tier: ModelTier = "fast"
+    ) -> BaseModel:
+        raise LLMError("Gemini request failed: simulated provider outage")
 
 
 async def _make_vocabulary_item(
@@ -96,6 +103,19 @@ async def test_generates_and_persists_examples_on_first_request(client: AsyncCli
     # The one shared mnemonic is duplicated onto every persisted row.
     assert {e["mnemonic"] for e in body} == {"Sounds like 'Oh, la!' -- a cheerful greeting."}
     assert fake.call_count == 1
+
+
+async def test_llm_provider_failure_is_502_not_500(client: AsyncClient, login_as):
+    """Regression test for app/main.py's global `LLMError` handler --
+    without it, a Gemini failure propagates as an uncaught exception and
+    leaks a 500 instead of a clean 502.
+    """
+    item = await _make_vocabulary_item(client, login_as)
+    app.dependency_overrides[get_llm_provider] = lambda: FailingLLMProvider()
+
+    resp = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
+
+    assert resp.status_code == 502
 
 
 async def test_second_request_serves_cached_examples_without_calling_llm_again(

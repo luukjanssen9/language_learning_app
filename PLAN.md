@@ -61,8 +61,9 @@ Living project plan and status log. Read at the start of every session; update C
   hardening; full frontend integration + session-derived identity)~~ —
   **all 4 slices done and verified end-to-end, 2026-08-16.**
   ~~Performance/cost review~~ — done, 2026-08-16 (rate limiting added,
-  one real N+1 fixed, see Decisions Log). Still remaining: a final test
-  pass; deployment; final README with setup, architecture overview,
+  one real N+1 fixed, see Decisions Log). ~~Final test pass~~ — done,
+  2026-08-16 (coverage-gap audit, 31 new tests, see Decisions Log). Still
+  remaining: deployment; final README with setup, architecture overview,
   screenshots/demo.
 
 ## Decisions Log
@@ -2270,10 +2271,66 @@ noted, a future backend aggregate endpoint); missing composite
 running dev-mode `uvicorn --reload` with dev dependencies installed
 (real, but squarely a deploy-slice fix, not a performance-review one).
 
+**2026-08-16 — Phase 8 final test pass, complete.** Ran the full existing
+suite as a baseline (green), then audited for coverage gaps by comparing
+every backend route file against its test file and checking the four
+global exception handlers in `main.py` against what actually exercises
+them.
+
+Found and filled real gaps: `courses.py`/`skills.py` had no test at all
+for their update/delete routes (only implicit coverage of create, via
+other files' setup helpers) — added `test_courses.py`/`test_skills.py`
+mirroring `test_languages.py`'s existing CRUD-lifecycle pattern.
+`users.py`'s self-only `GET/PATCH/DELETE` (`_check_self`, added Slice 4)
+had zero coverage despite being real, security-relevant logic — added
+`test_users.py`. More notably: two of the four global exception handlers
+in `main.py` (`AuthError`→401, `TTSError`→502) had never been exercised
+by a test, and neither had the third (`LLMError`→502) anywhere in the
+suite — despite the `AuthError` handler's own comment explicitly saying
+it exists because a bad Google credential *leaked a 500 live once*
+before this handler was added. Added one regression test per handler
+(`test_auth.py`, `test_tts.py`, `test_vocabulary_examples.py`), each
+confirming the clean error status instead of an uncaught exception.
+While writing the `AuthError` regression test, caught and fixed a real
+mistake in the test itself before it could land: forgetting to wrap a
+`FastAPI` dependency override in a no-arg `lambda:` made FastAPI
+introspect the override's own inner-function signature as a request
+param, producing a misleading 422 instead of testing anything real.
+
+On the frontend, confirmed this project's existing test/no-test split is
+deliberate and consistently applied throughout (pure, hook-free
+presentational components get RTL tests; anything wired to a data-
+fetching hook is verified live instead, per every prior phase's decision
+log) — then found three components that broke that split without a hook
+to excuse it: `SkillNode`, `CardListItem`, and `IntroScreen` were all
+pure/props-only, same shape as already-tested `MessageBubble`/
+`KnownVocabularyRow`, just missing their test file. Added all three.
+
+Finished with a live smoke test against the running dev servers: real
+Google-session dashboard load, and a real end-to-end journal submission
+(actual Gemini call, actual 201, actual persisted entry with vocabulary
+suggestions rendered) — confirming the new Slice-performance-review rate
+limiter doesn't interfere with genuine single-submission usage.
+
+Final tallies: backend 242/242 (up from 222 — 20 new tests), `ruff`
+clean; frontend 103/103 (up from 92 — 11 new tests), `tsc`/`eslint`
+clean.
+
 ## Current Status
 
 **As of 2026-08-16:**
 
+- Done: **Phase 8 final test pass, complete** — audited every backend
+  route against its test file and every global exception handler against
+  what actually exercises it; found and filled real gaps (courses/skills
+  CRUD, users.py's self-only checks, and three untested error-mapping
+  handlers, one of which was guarding a bug that had already leaked a 500
+  live once before). Added matching frontend component tests for three
+  presentational components that had fallen through this project's
+  otherwise-consistent test/no-test split. Backend 242/242 (+20), `ruff`
+  clean; frontend 103/103 (+11), `tsc`/`eslint` clean; live-verified with
+  a real end-to-end journal submission. See the decision log entry just
+  above for the full breakdown.
 - Done: **Phase 8 performance/cost review, complete** — added per-user
   rate limiting (nothing previously stood between a signed-in user and
   unlimited real Gemini calls) and fixed a real N+1 in the due-queue's
@@ -2520,11 +2577,11 @@ running dev-mode `uvicorn --reload` with dev dependencies installed
 - Blocked: nothing. (The manual "sign back in via the real Google account
   picker" follow-up from the auth-slice-4 verification has since been
   confirmed by the user — data intact — and the commit pushed.)
-- Next: Phase 8's auth sub-scope (slices 1-4) and performance/cost review
-  are both done; still remaining: a final test pass, deployment (Vercel +
-  Railway/Fly.io, per the 2026-08-11 decision), and a final README
-  (setup, architecture overview, screenshots/demo). See the Phase 8 line
-  in the plan checklist above.
+- Next: Phase 8's auth sub-scope (slices 1-4), performance/cost review,
+  and the final test pass are all done; still remaining: deployment
+  (Vercel + Railway/Fly.io, per the 2026-08-11 decision) and a final
+  README (setup, architecture overview, screenshots/demo). See the
+  Phase 8 line in the plan checklist above.
 - Open questions: none blocking — deployment target was already decided
   (2026-08-11); nothing else to resolve before starting the remaining
   Phase 8 work.
