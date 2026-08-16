@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404
+from app.api.rate_limit import journal_correction_limiter
 from app.database import get_db
 from app.models.course import Course
 from app.models.journal_entry import JournalEntry
@@ -25,6 +26,7 @@ async def submit_journal_entry(
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> JournalEntry:
+    journal_correction_limiter.check(current_user.id)
     course = await get_or_404(db, Course, payload.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404, get_owned_or_404
+from app.api.rate_limit import reading_passage_attempt_limiter, reading_passage_generation_limiter
 from app.database import get_db
 from app.models.course import Course
 from app.models.language import Language
@@ -32,6 +33,7 @@ async def create_reading_passage(
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> ReadingPassage:
+    reading_passage_generation_limiter.check(current_user.id)
     course = await get_or_404(db, Course, payload.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)
@@ -78,6 +80,7 @@ async def submit_reading_passage_attempt(
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> ReadingPassageAttempt:
+    reading_passage_attempt_limiter.check(current_user.id)
     passage = await get_owned_or_404(db, ReadingPassage, passage_id, current_user.id)
     if not (0 <= payload.question_index < len(passage.questions)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="question_index out of range")

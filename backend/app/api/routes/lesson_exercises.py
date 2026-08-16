@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404
+from app.api.rate_limit import free_text_grading_limiter
 from app.database import get_db
 from app.models.course import Course
 from app.models.enums import ExerciseType
@@ -111,6 +112,7 @@ async def submit_lesson_exercise_attempt(
         grammar_config = target_language.grammar_config
 
     if exercise.exercise_type == ExerciseType.FREE_TEXT:
+        free_text_grading_limiter.check(current_user.id)
         skill = await get_or_404(db, Skill, exercise.skill_id)
         course = await get_or_404(db, Course, skill.course_id)
         target_language = await get_or_404(db, Language, course.target_language_id)

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404, get_owned_or_404
+from app.api.rate_limit import roleplay_message_limiter, roleplay_start_limiter
 from app.database import get_db
 from app.models.course import Course
 from app.models.enums import MessageRole
@@ -39,6 +40,7 @@ async def create_conversation(
     message exists yet, so this goes through `start_conversation`'s
     single-shot path, not `continue_conversation`'s multi-turn one.
     """
+    roleplay_start_limiter.check(current_user.id)
     scenario = await get_or_404(db, RoleplayScenario, payload.scenario_id)
     course = await get_or_404(db, Course, payload.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
@@ -113,6 +115,7 @@ async def send_message(
     user's turn in the same call -- the reply and its correction of what
     was just said are the same LLM response, not two round trips.
     """
+    roleplay_message_limiter.check(current_user.id)
     conversation = await get_owned_or_404(db, Conversation, conversation_id, current_user.id)
     scenario = await get_or_404(db, RoleplayScenario, conversation.scenario_id)
     course = await get_or_404(db, Course, conversation.course_id)

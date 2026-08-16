@@ -114,51 +114,76 @@ async def list_cards(
     return list(result.scalars().all())
 
 
-async def _unlock_eligible_production_cards(
-    db: AsyncSession, deck_id: uuid.UUID, now: datetime
-) -> None:
+async def _unlock_eligible_production_cards(db: AsyncSession, deck: Deck, now: datetime) -> None:
     """Flips a SUSPENDED production card to NEW once its sibling
     recognition card's production gate is met -- see
     `app/services/note_cards.py`'s module docstring for the config shape
     and PLAN.md's 2026-08-14 "Anki-style vocab decks" decision for why
     this lives here rather than a background job (this app has none).
+
+    Batches every lookup instead of doing it per suspended card: every
+    card in `deck` shares the same deck -> course -> target_language, so
+    that lookup happens once regardless of how many cards are suspended,
+    and vocabulary items / recognition cards / review counts are each
+    fetched in one `IN (...)` query rather than one query per card --
+    found during the Phase 8 performance review, where a deck with many
+    still-gated production cards meant O(n) round trips on every `/due`
+    request.
     """
     result = await db.execute(
-        select(Card).where(Card.deck_id == deck_id, Card.state == CardState.SUSPENDED)
+        select(Card).where(Card.deck_id == deck.id, Card.state == CardState.SUSPENDED)
     )
     suspended_cards = list(result.scalars().all())
     if not suspended_cards:
         return
 
-    for card in suspended_cards:
-        vocabulary_item = await db.get(VocabularyItem, card.vocabulary_item_id)
-        course = await db.get(Course, vocabulary_item.course_id)
-        target_language = await db.get(Language, course.target_language_id)
-        gate = target_language.grammar_config.get("vocab_deck", {}).get("production_gate", {})
+    course = await db.get(Course, deck.course_id)
+    target_language = await db.get(Language, course.target_language_id)
+    gate = target_language.grammar_config.get("vocab_deck", {}).get("production_gate", {})
+    min_reviews = gate.get("min_successful_recognition_reviews")
+    min_days = gate.get("min_days_since_note_added")
+    if min_reviews is None and min_days is None:
+        return
 
-        recognition_result = await db.execute(
-            select(Card).where(
-                Card.vocabulary_item_id == card.vocabulary_item_id,
-                Card.direction == CardDirection.TARGET_TO_BASE,
-            )
+    vocabulary_item_ids = [card.vocabulary_item_id for card in suspended_cards]
+    vocab_result = await db.execute(
+        select(VocabularyItem).where(VocabularyItem.id.in_(vocabulary_item_ids))
+    )
+    vocabulary_items_by_id = {item.id: item for item in vocab_result.scalars()}
+
+    recognition_result = await db.execute(
+        select(Card).where(
+            Card.vocabulary_item_id.in_(vocabulary_item_ids),
+            Card.direction == CardDirection.TARGET_TO_BASE,
         )
-        recognition = recognition_result.scalar_one_or_none()
+    )
+    recognition_by_vocab_id = {c.vocabulary_item_id: c for c in recognition_result.scalars()}
+
+    review_counts: dict[uuid.UUID, int] = {}
+    if min_reviews is not None:
+        recognition_ids = [c.id for c in recognition_by_vocab_id.values()]
+        if recognition_ids:
+            count_result = await db.execute(
+                select(ReviewLog.card_id, func.count(ReviewLog.id))
+                .where(
+                    ReviewLog.card_id.in_(recognition_ids),
+                    ReviewLog.rating != ReviewRating.AGAIN,
+                )
+                .group_by(ReviewLog.card_id)
+            )
+            review_counts = dict(count_result.all())
+
+    for card in suspended_cards:
+        recognition = recognition_by_vocab_id.get(card.vocabulary_item_id)
         if recognition is None:
             continue
 
         unlocked = False
-        min_reviews = gate.get("min_successful_recognition_reviews")
-        if min_reviews is not None:
-            count_result = await db.execute(
-                select(func.count(ReviewLog.id)).where(
-                    ReviewLog.card_id == recognition.id, ReviewLog.rating != ReviewRating.AGAIN
-                )
-            )
-            if count_result.scalar_one() >= min_reviews:
-                unlocked = True
+        if min_reviews is not None and review_counts.get(recognition.id, 0) >= min_reviews:
+            unlocked = True
 
-        min_days = gate.get("min_days_since_note_added")
         if not unlocked and min_days is not None:
+            vocabulary_item = vocabulary_items_by_id[card.vocabulary_item_id]
             note_age_days = (now - vocabulary_item.created_at).total_seconds() / 86400
             if note_age_days >= min_days:
                 unlocked = True
@@ -203,7 +228,7 @@ async def list_due_cards(
     deck = await get_owned_or_404(db, Deck, deck_id, current_user.id)
 
     now = datetime.now(UTC)
-    await _unlock_eligible_production_cards(db, deck_id, now)
+    await _unlock_eligible_production_cards(db, deck, now)
     # Without this commit, the SUSPENDED -> NEW state flips above are only
     # visible for the rest of *this* request -- a GET request's session
     # (see app/database.py's get_db) closes without auto-committing, so an

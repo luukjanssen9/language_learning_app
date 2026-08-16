@@ -9,10 +9,9 @@ from app.services.auth import SESSION_COOKIE_NAME, AuthError, decode_session_tok
 async def get_current_user(
     request: Request, db: AsyncSession = Depends(get_db)
 ) -> User:
-    """Not wired into any existing route yet -- this slice only proves the
-    session mechanism works via GET /auth/me. Adding this as a dependency
-    to the rest of the app's routes (replacing their client-supplied
-    `user_id` params/fields) is a later slice's job.
+    """Derives the signed-in user from the session cookie -- every route
+    that reads/mutates a specific user's data depends on this rather than
+    trusting a client-supplied `user_id` (see PLAN.md's Phase 8 slice 4).
     """
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if token is None:

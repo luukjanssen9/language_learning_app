@@ -54,14 +54,16 @@ Living project plan and status log. Read at the start of every session; update C
   comparison/feedback.
 - [ ] **Phase 8 — Scalability check, polish & deploy**: ~~add a second
   language's config to prove the architecture generalizes~~ — done early,
-  2026-08-14 (v1 Dutch course, see Decisions Log); performance/cost
-  review; tests; deployment; final README with setup, architecture overview,
-  screenshots/demo. Real multi-user auth (Google Sign-In) added to this
-  phase's scope 2026-08-15, per the user's explicit ask — the single
-  largest change in the project so far, sliced like Phase 4/5/6:
-  **slice 1 (backend foundation + `/login`) done** — see Decisions Log;
-  slices 2-4 (personal-data `user_id` scoping, route hardening, full
-  frontend integration) not yet started.
+  2026-08-14 (v1 Dutch course, see Decisions Log). Real multi-user auth
+  (Google Sign-In) added to this phase's scope 2026-08-15, per the user's
+  explicit ask — ~~sliced like Phase 4/5/6 into 4 slices (backend
+  foundation + `/login`; personal-data `user_id` scoping; route ownership
+  hardening; full frontend integration + session-derived identity)~~ —
+  **all 4 slices done and verified end-to-end, 2026-08-16.**
+  ~~Performance/cost review~~ — done, 2026-08-16 (rate limiting added,
+  one real N+1 fixed, see Decisions Log). Still remaining: a final test
+  pass; deployment; final README with setup, architecture overview,
+  screenshots/demo.
 
 ## Decisions Log
 
@@ -2134,8 +2136,8 @@ requests and zero console errors. Full verification: 216/216 backend
 tests pass, `ruff` clean; frontend 92/92 tests, `tsc`, `eslint` all clean.
 
 **2026-08-16 — Phase 8 auth Slice 4 (real Google sign-in everywhere,
-session-derived identity), complete and verified end-to-end. Phase 8 is
-now fully done.** Closes both remaining gaps at once: `BootstrapProvider`
+session-derived identity), complete and verified end-to-end.** Closes
+both remaining gaps at once: `BootstrapProvider`
 never actually signed anyone in, and every route still trusted whatever
 `user_id` the client claimed. Confirmed the login-UX question with the
 user first (AskUserQuestion): an **in-place login gate** — one provider
@@ -2223,10 +2225,61 @@ popup/account-selection flow, appropriately outside what should be
 automated) — handed off to the user to confirm the final leg (same
 account's data still intact after a real round trip).
 
+**2026-08-16 — Phase 8 performance/cost review, complete; two real
+findings fixed, three deliberately deferred.** Went through every LLM/TTS
+call site, backend query pattern, frontend fetch pattern, and the
+Docker/DB setup.
+
+**Fixed:**
+- **No rate limiting existed anywhere** (confirmed via a full-backend
+  grep) — any signed-in user could call journal correction, free-text
+  grading, reading-comprehension grading, reading-passage generation, or
+  roleplay chat as fast as the UI allowed, each a real, uncached Gemini
+  call against a tight, whole-app-shared free-tier quota. Added a small
+  in-process `RateLimiter` (`app/api/rate_limit.py`, sliding window,
+  per-user, no new dependency — in-memory rather than Redis-backed since
+  this app runs as a single process) with one named budget per
+  LLM-backed feature (5-15 calls/minute depending on how naturally
+  chatty the feature is — roleplay messaging gets the most headroom).
+  Wired into all five call sites; `lesson_exercises.py`'s attempt
+  endpoint only checks it inside the FREE_TEXT branch, since that's the
+  only exercise type that actually calls the LLM. 6 new tests
+  (`test_rate_limit.py`) — the window-expiry case is tested by passing an
+  explicit `now` into `RateLimiter.check` rather than a real
+  `time.sleep`, deliberately avoiding the class of wall-clock-relative
+  flake already in Known Issues.
+- **N+1 in `_unlock_eligible_production_cards`** (`cards.py`, runs on
+  every `GET /cards/due`) did 3-4 separate DB round trips *per suspended
+  card* in a loop. Rewritten to batch: course/target_language (identical
+  for every card in one deck, so only ever needed once, not per-card) is
+  loaded before the loop; vocabulary items, recognition cards, and review
+  counts are each fetched in one `IN (...)`/`GROUP BY` query regardless
+  of how many cards are suspended. Caller updated to pass the
+  already-loaded `Deck` instead of a bare `deck_id`, since it already had
+  it in hand. No behavior change — same 34 tests covering this path and
+  the wider review/gating flow still pass.
+
+**Deliberately deferred (logged as Known Issues, not fixed now):**
+`get_or_create_vocabulary_item_and_cards`'s unbounded per-user
+`VocabularyItem` scan (real, but only degrades once a personal vocabulary
+grows into the hundreds+ — not there yet); `useDeckStatsList`'s one-
+request-per-deck pattern (already self-documented with its own fix
+noted, a future backend aggregate endpoint); missing composite
+`(user_id, course_id)` indexes and untuned DB connection-pool sizing
+(both low-urgency at current scale); the backend `Dockerfile` always
+running dev-mode `uvicorn --reload` with dev dependencies installed
+(real, but squarely a deploy-slice fix, not a performance-review one).
+
 ## Current Status
 
 **As of 2026-08-16:**
 
+- Done: **Phase 8 performance/cost review, complete** — added per-user
+  rate limiting (nothing previously stood between a signed-in user and
+  unlimited real Gemini calls) and fixed a real N+1 in the due-queue's
+  production-gate unlock check; three lower-urgency findings deferred and
+  logged as Known Issues. 222/222 backend tests pass, `ruff` clean. See
+  the decision log entry just above for the full breakdown.
 - Done: **Phase 8 — real multi-user auth, complete end-to-end (Slices
   1-4).** Slice 4 (real Google sign-in everywhere, session-derived
   identity) closes the phase: an in-place login gate replaces
@@ -2464,16 +2517,45 @@ account's data still intact after a real round trip).
     at exactly the expected connection point, confirming the fixtures and
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
-- Blocked: nothing — one manual follow-up left for the user: sign back in
-  via the real Google account picker (see the decision log entry just
-  above) to confirm the same account's data survives a real logout/login
-  round trip; everything automatable has been verified.
-- Next: Phase 8 is fully done. Next phase per the roadmap is whatever the
-  user picks up next — no further auth slices planned.
-- Open questions: none.
+- Blocked: nothing. (The manual "sign back in via the real Google account
+  picker" follow-up from the auth-slice-4 verification has since been
+  confirmed by the user — data intact — and the commit pushed.)
+- Next: Phase 8's auth sub-scope (slices 1-4) and performance/cost review
+  are both done; still remaining: a final test pass, deployment (Vercel +
+  Railway/Fly.io, per the 2026-08-11 decision), and a final README
+  (setup, architecture overview, screenshots/demo). See the Phase 8 line
+  in the plan checklist above.
+- Open questions: none blocking — deployment target was already decided
+  (2026-08-11); nothing else to resolve before starting the remaining
+  Phase 8 work.
 
 ## Known Issues / Follow-ups
 
+- `get_or_create_vocabulary_item_and_cards` (`note_cards.py`, backs
+  quick-add and known-vocabulary promote) loads *every* `VocabularyItem`
+  a user has in a course, unfiltered, and matches target/base text in
+  Python rather than SQL (accent/case-insensitive matching has no simple
+  SQL-pushdown without a Postgres extension). Fine at the tens-of-words
+  scale this app is at now; would need a normalized/indexed column (or
+  `unaccent`) if a personal vocabulary ever grows into the hundreds+.
+  Found during the 2026-08-16 performance review, deliberately deferred.
+- `useDeckStatsList` makes one request per deck (`useQueries`) rather
+  than a single aggregate call — already self-documented in the hook's
+  own comment as fine at portfolio scale, with the real fix (a backend
+  `GET /decks/stats`-style endpoint) noted for if deck count ever grows.
+  Re-confirmed as still the right call during the 2026-08-16 performance
+  review, not fixed.
+- No composite `(user_id, course_id)` indexes on the tables filtered by
+  both (vocabulary items, known-vocabulary, reading passages) — the
+  existing single-column indexes on each are adequate at current scale.
+  Also, `database.py` uses SQLAlchemy's default connection-pool sizing
+  (5 + 10 overflow), untuned. Both low-urgency; revisit once real hosting
+  with a real connection cap is picked (the deploy slice).
+- The backend `Dockerfile` always runs `uvicorn --reload` with dev
+  dependencies installed (`pip install -e ".[dev]"`) — correct for local
+  Docker parity, not what should actually ship. Real fix (multi-stage
+  build, a real ASGI server command, prod-only deps) belongs in the
+  deploy slice, not before.
 - On Windows, killing a `uvicorn --reload` process by its listed PID can
   leave an orphaned worker subprocess still bound to the port and still
   serving old code — the reloader (parent) and the actual server (child
@@ -2515,9 +2597,12 @@ account's data still intact after a real round trip).
   out of scope for Slice 2 (a deliberate call, not an oversight); revisit
   if per-user LLM/TTS cost becomes a real concern.
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
-  as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
-  for the conversational practice partner (Phase 6), which will burn requests
-  fastest.
+  as of 2026-08, shared across the whole app, not per user) — per-user
+  rate limiting was added in the 2026-08-16 performance review
+  (`app/api/rate_limit.py`) to stop any single user from exhausting it,
+  but the underlying app-wide quota itself is still real; revisit if a
+  paid Gemini tier or real concurrent multi-user load makes it a
+  bottleneck.
 - No Anthropic key yet — if/when one is added, confirm the provider-agnostic
   LLM layer actually swaps cleanly (this is a real test of that abstraction,
   not just a nice-to-have).
