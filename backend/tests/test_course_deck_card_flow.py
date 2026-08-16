@@ -42,7 +42,12 @@ async def test_full_course_deck_card_flow(client: AsyncClient):
     vocab = (
         await client.post(
             "/api/vocabulary-items",
-            json={"course_id": course["id"], "target_text": "perro", "base_text": "dog"},
+            json={
+                "course_id": course["id"],
+                "user_id": user["id"],
+                "target_text": "perro",
+                "base_text": "dog",
+            },
         )
     ).json()
 

@@ -92,12 +92,12 @@ export default function ReadingPassagePage() {
   // Reuses the same reading-passages query the category page already
   // populated (same courseId, same query key) -- same convention as the
   // lesson session page reusing the dashboard's skills query.
-  const { data: passages = [], isPending } = useReadingPassages(courseId);
+  const { data: passages = [], isPending } = useReadingPassages(courseId, userId);
   const passage = passages.find((p) => p.id === passageId);
 
   const { data: decks = [] } = useDecks();
-  const { data: vocabItems = [] } = useVocabularyItems(courseId);
-  const { data: knownWords = [] } = useKnownVocabularyItems(courseId);
+  const { data: vocabItems = [] } = useVocabularyItems(courseId, userId);
+  const { data: knownWords = [] } = useKnownVocabularyItems(courseId, userId);
   const quickAdd = useQuickAddCard();
   const markKnown = useAddKnownVocabulary();
   const submitAttempt = useSubmitReadingPassageAttempt();
@@ -116,7 +116,11 @@ export default function ReadingPassagePage() {
   }
 
   async function handleMarkKnown(word: NewVocabularyWord) {
-    await markKnown.mutateAsync({ course_id: courseId, target_text: word.target_text });
+    await markKnown.mutateAsync({
+      course_id: courseId,
+      user_id: userId,
+      target_text: word.target_text,
+    });
   }
 
   async function handleSubmitAnswer(questionIndex: number, submittedAnswer: string) {

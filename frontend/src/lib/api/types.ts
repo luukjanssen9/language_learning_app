@@ -236,6 +236,9 @@ export interface LessonExerciseAttemptResponse {
 export interface VocabularyItem {
   id: string;
   course_id: string;
+  // Null means shared curriculum content (lesson-seeded vocab); a real
+  // value is a specific user's own word.
+  user_id: string | null;
   target_text: string;
   base_text: string;
   part_of_speech: string | null;
@@ -318,6 +321,7 @@ export interface ReadingPassageQuestion {
 export interface ReadingPassage {
   id: string;
   course_id: string;
+  user_id: string;
   target_text: string;
   base_text: string;
   new_vocabulary: NewVocabularyWord[];
@@ -327,6 +331,7 @@ export interface ReadingPassage {
 
 export interface ReadingPassageGeneratePayload {
   course_id: string;
+  user_id: string;
 }
 
 export interface ReadingPassageAttemptSubmitPayload {
@@ -351,6 +356,7 @@ export type KnownVocabularySource = "placement_check" | "manual" | "promoted";
 export interface KnownVocabularyItem {
   id: string;
   course_id: string;
+  user_id: string;
   target_text: string;
   source: KnownVocabularySource;
   created_at: string;
@@ -358,11 +364,13 @@ export interface KnownVocabularyItem {
 
 export interface KnownVocabularyItemCreatePayload {
   course_id: string;
+  user_id: string;
   target_text: string;
 }
 
 export interface KnownVocabularyBulkCreatePayload {
   course_id: string;
+  user_id: string;
   target_texts: string[];
 }
 
@@ -392,6 +400,7 @@ export interface PasteInAnalyzeResponse {
 
 export interface PasteInAnalyzePayload {
   course_id: string;
+  user_id: string;
   text: string;
 }
 

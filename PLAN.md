@@ -1964,18 +1964,119 @@ its original 2026-08-13 seed date, ruling out a new row) with the real
 user's existing decks are still attached to the same `user_id` — zero data
 loss, exactly as designed.
 
+**2026-08-15 — Phase 8 auth Slice 2 (`user_id` on `VocabularyItem`/
+`KnownVocabularyItem`/`ReadingPassage`), complete and verified end-to-end.**
+Closes the data-isolation gap Slice 1 deliberately left open: before this
+slice, every user shared one pool of personal vocabulary, known-words, and
+reading passages on a course. A pre-planning investigation found a real
+wrinkle — 12 seeded `VocabularyItem` rows (Greetings/Family skill vocab)
+have no deck/card/owner and are referenced directly by shared
+`LessonExercise` content — resolved with the user before designing further:
+`VocabularyItem.user_id` is **nullable** (`NULL` = shared curriculum, a real
+value = personal), while `KnownVocabularyItem.user_id`/`ReadingPassage.user_id`
+are **not** nullable (every row there is inherently personal, no shared case).
+
+**Migration** (`2be0ac4d09b6`) is hand-written past the autogenerate
+skeleton, this project's first data migration (all prior ones were
+schema-only): adds all three columns nullable first, backfills via
+`op.execute` to the oldest `User` row (`ORDER BY created_at LIMIT 1` —
+portable to an empty DB, where the backfill is just a no-op), with
+`VocabularyItem`'s backfill excluding any row present in
+`lesson_exercise_vocabulary` so the 12 curriculum rows stay `NULL`, then
+`ALTER COLUMN ... SET NOT NULL` on the two non-nullable columns.
+`known_vocabulary_items`'s unique constraint changes from
+`(course_id, target_text)` to `(user_id, course_id, target_text)`. The
+recurring unrelated `ix_cards_due_at` autogenerate-drift (see Known Issues)
+was stripped a third time.
+
+**Backend**: `note_cards.get_or_create_vocabulary_item_and_cards`'s note-dedup
+lookup now scopes to `VocabularyItem.user_id == deck.user_id` (excluding
+`NULL`/shared rows) and sets `user_id` on new notes — a real, intentional
+behavior change: two different users' decks in the *same* course no longer
+silently share a note for the same word (previously true, no longer is;
+same-user multi-deck reuse is unaffected and still covered by a test).
+`known_vocabulary_lookup.py`'s functions all gained a `user_id` parameter;
+mastered-word lookups scope via a `Deck` join (mastery is "cards *you've*
+studied," same join `weak_points.get_weak_cards` already uses) rather than
+`VocabularyItem.user_id`, so a curriculum word mastered through your own
+deck still counts as yours. Every route touching these three tables
+(`known_vocabulary.py`, `vocabulary.py`, `reading_passages.py`,
+`paste_in.py`, `conversations.py`) threads `user_id` through as a query
+param (GET) or body field (POST) — `vocabulary.py`'s list is the one place
+`user_id` is deliberately OR'd with `IS NULL`, so shared curriculum content
+stays visible alongside personal words. This slice does **not** add
+ownership *checks* (Slice 3's job) — it makes the data model correct and
+every route pass the right `user_id` through, same client-supplied-param
+convention the rest of the app already uses.
+
+**Frontend**: `VocabularyItem`/`KnownVocabularyItem`/`ReadingPassage` types
+gain `user_id`; `queryKeys.vocabulary`/`knownVocabulary`/`readingPassages`
+all gain a `userId` segment (matching the existing `journalEntries`/
+`weakPoints`/`conversations` convention); the 5 hooks and their API-client
+functions thread it through; 7 page call sites updated (the plan's original
+6 plus `known-vocabulary/placement-check/page.tsx`'s bulk-add, found only
+by grepping for every real call site rather than trusting the plan's list).
+
+**Tests**: extended `test_known_vocabulary.py`/`test_known_vocabulary_lookup.py`/
+`test_reading_passages.py`/`test_quick_add_and_gating.py` with cross-user
+isolation cases (same word, same course, two users — no collision, no
+leakage); every other integration test touching these three tables across
+the whole suite needed a `user_id` fixture added (9 files total) since the
+fields are now required. One test (`test_first_ever_login_claims_the_legacy_row_in_place`,
+Slice 1) started failing here for an unrelated reason — the shared dev DB's
+real seed user now genuinely has a `google_sub` (from Slice 1's own live
+verification), so the "nobody has ever claimed a Google identity" state the
+test needs no longer exists on its own; fixed by resetting every row's
+`google_sub` to `NULL` within the test's own (savepoint-rolled-back)
+transaction before asserting, rather than fighting the shared DB's real
+history.
+
+**Live verification**: `alembic upgrade head` against the real dev DB
+backfilled exactly as designed (49 personal `VocabularyItem` rows to the
+real user, 12 curriculum rows stayed `NULL`, zero `NULL` rows left in
+`known_vocabulary_items`/`reading_passages`). Two real, unrelated
+environment issues found only by testing live end-to-end, not by the
+automated suite: (1) two stray `uvicorn` processes were both alive on port
+8000 (leftover from earlier in the session) — the live one was serving
+pre-migration route code, so a real reading-passage generation attempt
+through the browser 409'd on a NOT NULL violation; fixed by killing both
+and starting one clean process, not a code change. (2) Immediately after
+that kill, one request hit a `TimeoutError` acquiring a DB connection from
+the pool — confirmed as a one-off blip coinciding with the process kill
+(Postgres itself showed a single healthy connection right after), not
+reproducible on retry. With a clean backend, `/vocabulary` correctly shows
+both personal words and the Greetings/Family curriculum words together,
+`/known-vocabulary` (list, full-set, mastered, coverage panel) all scope
+correctly to the real signed-in user, and reading-passage generation +
+detail-page rendering (new vocabulary, comprehension questions) work
+end-to-end via both direct API calls and the real browser UI. Full
+verification: 187/188 backend tests pass (`ruff` clean) — the one failure
+is a pre-existing, unrelated test-timing flake (`test_due_queue_appends_new_cards_oldest_first_capped_at_new_limit`
+uses a hardcoded `now() - 30min` "today" boundary that breaks in the ~30
+minutes after UTC midnight, which this run happened to land in; confirmed
+by wall-clock, not a Slice 2 regression); frontend 92/92 tests, `tsc`,
+`eslint` all clean.
+
 ## Current Status
 
 **As of 2026-08-15:**
 
+- Done: **Phase 8 — real multi-user auth, Slice 2 (`user_id` on
+  `VocabularyItem`/`KnownVocabularyItem`/`ReadingPassage`), complete and
+  verified end-to-end** — data-isolation gap closed for personal
+  vocabulary, known-words, and reading passages; shared curriculum content
+  (`VocabularyItem.user_id IS NULL`) stays visible to everyone. Two real,
+  unrelated environment issues found only via live testing (stray duplicate
+  backend process serving stale code; a one-off DB-pool timeout), both
+  resolved, neither a code bug — see the decision log entry just above for
+  the full breakdown. Slices 3-4 (route ownership hardening, full frontend
+  integration replacing `BootstrapProvider`) not started.
 - Done: **Phase 8 — real multi-user auth, Slice 1 (backend foundation +
   Google Sign-In), complete and verified live** — real Google account
   sign-in confirmed working end-to-end, including the legacy-data-claim
   logic (the dev seed user's row updated in place, zero data loss). Two
   real bugs found only reachable via live testing, both fixed — see the
-  decision log entry just above for the full breakdown. Slices 2-4
-  (personal-data `user_id` scoping, route hardening, full frontend
-  integration replacing `BootstrapProvider`) not started.
+  decision log entry just above for the full breakdown.
 - Done: **Known-vocabulary page now shows the full known set** (mastered
   flashcards + tracked known-vocabulary items, not just the latter) — see
   the decision log entry just above for the full breakdown. Also resolved
@@ -2170,14 +2271,14 @@ loss, exactly as designed.
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: Phase 8 auth Slice 2 — add `user_id` to `VocabularyItem`/
-  `KnownVocabularyItem`/`ReadingPassage`, update the cross-user vocab dedup
-  logic that currently deliberately shares words across everyone on a
-  course. Checkpoint with the user first per this project's per-slice
-  cadence, as always.
+- Next: Phase 8 auth Slice 3 — route ownership hardening (derive user
+  identity from the session instead of a client-supplied `user_id`, add
+  ownership checks to `decks.py`/`cards.py`/`user_exercise_attempts.py`/
+  `user_courses.py`/etc.). Checkpoint with the user first per this
+  project's per-slice cadence, as always.
 - Open questions: none blocking — the three big auth-architecture
   decisions (Course stays shared, Google-only, reassign legacy data) are
-  already resolved; execution is just working through Slices 2-4 now.
+  already resolved; execution is just working through Slices 3-4 now.
 
 ## Known Issues / Follow-ups
 
@@ -2189,10 +2290,28 @@ loss, exactly as designed.
   slice); harmless for local dev.
 - `alembic revision --autogenerate` keeps proposing to drop a pre-existing
   `ix_cards_due_at` index on `cards` (superseded by the composite
-  `ix_cards_deck_id_due_at`, never cleaned up) — surfaced in both the
-  2026-08-15 roleplay-chat migration and the same day's auth migration,
-  each time manually stripped out to keep the migration scoped. Worth an
-  actual cleanup migration at some point so this stops recurring.
+  `ix_cards_deck_id_due_at`, never cleaned up) — surfaced a third time in
+  the Phase 8 Slice 2 migration (previously the 2026-08-15 roleplay-chat
+  migration and the auth Slice 1 migration), each time manually stripped
+  out to keep the migration scoped. Worth an actual cleanup migration at
+  some point so this stops recurring.
+- `test_due_queue_appends_new_cards_oldest_first_capped_at_new_limit`
+  (`test_review_flow.py`) marks a review as "today" via a hardcoded
+  `datetime.now(UTC) - timedelta(minutes=30)` — breaks in the ~30 minutes
+  after UTC midnight, when that offset lands on the previous calendar day
+  and `_count_new_cards_shown_today`'s "today" filter no longer counts it,
+  letting one extra NEW card through the cap. Found live on 2026-08-15 at
+  00:10 UTC; confirmed via wall-clock, not a real regression. Worth
+  rewriting with an explicit fixed timestamp instead of a wall-clock-relative
+  one if it recurs.
+- `VocabularyExample`/`VocabularyAudio` are still cached per-`VocabularyItem`,
+  not per-`(VocabularyItem, user)` — now that Phase 8 Slice 2 gives personal
+  vocabulary its own `user_id`, two different users' independent
+  `VocabularyItem` rows for the same word (e.g. both quick-adding "perro")
+  each generate and cache their own examples/audio, duplicating LLM/TTS
+  spend that used to be shared across everyone on a course. Accepted as
+  out of scope for Slice 2 (a deliberate call, not an oversight); revisit
+  if per-user LLM/TTS cost becomes a real concern.
 - Gemini free-tier rate limits are tight (~10-15 req/min depending on model,
   as of 2026-08) — revisit caching strategy seriously in Phase 5, especially
   for the conversational practice partner (Phase 6), which will burn requests

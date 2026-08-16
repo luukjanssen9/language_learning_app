@@ -35,8 +35,14 @@ class KnownVocabularyItem(UUIDPkMixin, CreatedAtMixin, Base):
     """
 
     __tablename__ = "known_vocabulary_items"
-    __table_args__ = (UniqueConstraint("course_id", "target_text"),)
+    __table_args__ = (UniqueConstraint("user_id", "course_id", "target_text"),)
 
+    # Not nullable -- unlike VocabularyItem, there's no shared/curriculum
+    # equivalent here: every known-vocabulary row is inherently one user's
+    # self-report or placement-check estimate.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
     course_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False, index=True
     )

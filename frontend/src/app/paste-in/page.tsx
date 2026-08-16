@@ -9,14 +9,16 @@ import { useAnalyzePasteIn, useTranslateUnknownWords } from "@/hooks/usePasteIn"
 import { useQuickAddCard } from "@/hooks/useQuickAddCard";
 import { useVocabularyItems } from "@/hooks/useVocabulary";
 import type { NewVocabularyWord } from "@/lib/api/types";
+import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { useCourseContext } from "@/providers/CourseProvider";
 
 export default function PasteInPage() {
+  const { userId } = useBootstrapContext();
   const { selectedCourseId } = useCourseContext();
   const searchParams = useSearchParams();
   const { data: decks = [] } = useDecks();
-  const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId);
-  const { data: knownWords = [] } = useKnownVocabularyItems(selectedCourseId);
+  const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId, userId);
+  const { data: knownWords = [] } = useKnownVocabularyItems(selectedCourseId, userId);
   const quickAdd = useQuickAddCard();
   const markKnown = useAddKnownVocabulary();
   const analyze = useAnalyzePasteIn();
@@ -31,7 +33,11 @@ export default function PasteInPage() {
   async function runAnalyze(textToAnalyze: string) {
     if (!textToAnalyze.trim()) return;
     translate.reset(); // clear any stale glossary from a previous analysis
-    const result = await analyze.mutateAsync({ course_id: selectedCourseId, text: textToAnalyze });
+    const result = await analyze.mutateAsync({
+      course_id: selectedCourseId,
+      user_id: userId,
+      text: textToAnalyze,
+    });
     if (result.unknown_words.length > 0) {
       translate.mutate({ course_id: selectedCourseId, words: result.unknown_words });
     }
@@ -95,7 +101,11 @@ export default function PasteInPage() {
   }
 
   async function handleMarkKnown(word: NewVocabularyWord) {
-    await markKnown.mutateAsync({ course_id: selectedCourseId, target_text: word.target_text });
+    await markKnown.mutateAsync({
+      course_id: selectedCourseId,
+      user_id: userId,
+      target_text: word.target_text,
+    });
   }
 
   return (

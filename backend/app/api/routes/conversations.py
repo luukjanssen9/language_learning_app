@@ -41,7 +41,7 @@ async def create_conversation(
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)
 
-    known_words = await get_known_words_for_passage(db, course.id)
+    known_words = await get_known_words_for_passage(db, course.id, payload.user_id)
     result = await start_conversation(
         llm, target_language.name, base_language.name, scenario.setup_prompt, known_words
     )
@@ -130,7 +130,7 @@ async def send_message(
     ]
     history.append(ChatTurn(role="user", text=payload.text))
 
-    known_words = await get_known_words_for_passage(db, course.id)
+    known_words = await get_known_words_for_passage(db, course.id, conversation.user_id)
     result = await continue_conversation(
         llm,
         target_language.name,

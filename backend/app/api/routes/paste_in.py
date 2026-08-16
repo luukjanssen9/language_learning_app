@@ -34,7 +34,7 @@ async def analyze_pasted_text(
     course = await get_or_404(db, Course, payload.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
 
-    known_words = await get_full_known_word_set(db, course.id)
+    known_words = await get_full_known_word_set(db, course.id, payload.user_id)
     raw_segments = tokenize(payload.text, target_language.grammar_config)
 
     segments: list[TextSegment] = []

@@ -43,13 +43,14 @@ async def _make_deck(client: AsyncClient) -> dict:
     return deck
 
 
-async def _make_card(client: AsyncClient, deck_id: str, course_id: str) -> dict:
+async def _make_card(client: AsyncClient, deck_id: str, course_id: str, user_id: str) -> dict:
     suffix = uuid.uuid4().hex[:8]
     vocab = (
         await client.post(
             "/api/vocabulary-items",
             json={
                 "course_id": course_id,
+                "user_id": user_id,
                 "target_text": f"palabra-{suffix}",
                 "base_text": f"word-{suffix}",
             },
@@ -63,7 +64,7 @@ async def _make_card(client: AsyncClient, deck_id: str, course_id: str) -> dict:
 
 async def test_list_cards_without_deck_id_returns_all(client: AsyncClient):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     resp = await client.get("/api/cards")
     assert resp.status_code == 200
@@ -74,8 +75,8 @@ async def test_list_cards_without_deck_id_returns_all(client: AsyncClient):
 async def test_list_cards_filters_by_deck_id(client: AsyncClient):
     deck_a = await _make_deck(client)
     deck_b = await _make_deck(client)
-    card_a = await _make_card(client, deck_a["id"], deck_a["_course_id"])
-    await _make_card(client, deck_b["id"], deck_b["_course_id"])
+    card_a = await _make_card(client, deck_a["id"], deck_a["_course_id"], deck_a["user_id"])
+    await _make_card(client, deck_b["id"], deck_b["_course_id"], deck_b["user_id"])
 
     resp = await client.get("/api/cards", params={"deck_id": deck_a["id"]})
     assert resp.status_code == 200

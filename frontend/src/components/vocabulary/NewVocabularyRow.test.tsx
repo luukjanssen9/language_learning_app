@@ -20,6 +20,7 @@ function vocabItem(overrides: Partial<VocabularyItem>): VocabularyItem {
   return {
     id: "vocab-x",
     course_id: "course-1",
+    user_id: "user-1",
     target_text: "placeholder",
     base_text: "placeholder",
     part_of_speech: null,
@@ -37,6 +38,7 @@ function knownItem(overrides: Partial<KnownVocabularyItem>): KnownVocabularyItem
   return {
     id: "known-x",
     course_id: "course-1",
+    user_id: "user-1",
     target_text: "placeholder",
     source: "manual",
     created_at: "2026-08-14T00:00:00Z",

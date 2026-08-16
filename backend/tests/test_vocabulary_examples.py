@@ -52,11 +52,18 @@ async def _make_vocabulary_item(
             },
         )
     ).json()
+    user = (
+        await client.post(
+            "/api/users",
+            json={"email": f"vocabexamples-{suffix}@example.com", "display_name": "Examples Test"},
+        )
+    ).json()
     item = (
         await client.post(
             "/api/vocabulary-items",
             json={
                 "course_id": course["id"],
+                "user_id": user["id"],
                 "target_text": "hola" if target_name == "Spanish" else "hallo",
                 "base_text": "hello",
                 "part_of_speech": "interjection",

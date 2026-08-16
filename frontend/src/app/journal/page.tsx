@@ -15,7 +15,7 @@ export default function JournalPage() {
   const { selectedCourseId } = useCourseContext();
   const { data: decks = [] } = useDecks();
   const { data: entries = [], isPending } = useJournalEntries(userId, selectedCourseId);
-  const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId);
+  const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId, userId);
   const submitEntry = useSubmitJournalEntry();
   const quickAdd = useQuickAddCard();
 

@@ -49,23 +49,34 @@ async def _make_course(client: AsyncClient) -> dict:
             },
         )
     ).json()
-    return {**course, "_target_language_id": lang_es["id"]}
+    user = (
+        await client.post(
+            "/api/users",
+            json={"email": f"pastein-{suffix}@example.com", "display_name": "Paste-in Test"},
+        )
+    ).json()
+    return {**course, "_target_language_id": lang_es["id"], "_user_id": user["id"]}
 
 
-async def _add_known_word(client: AsyncClient, course_id: str, word: str) -> None:
+async def _add_known_word(client: AsyncClient, course_id: str, user_id: str, word: str) -> None:
     resp = await client.post(
-        "/api/known-vocabulary", json={"course_id": course_id, "target_text": word}
+        "/api/known-vocabulary",
+        json={"course_id": course_id, "user_id": user_id, "target_text": word},
     )
     assert resp.status_code == 201, resp.text
 
 
 async def test_analyze_flags_unknown_words_and_reconstructs_text(client: AsyncClient):
     course = await _make_course(client)
-    await _add_known_word(client, course["id"], "hola")
+    await _add_known_word(client, course["id"], course["_user_id"], "hola")
 
     resp = await client.post(
         "/api/paste-in/analyze",
-        json={"course_id": course["id"], "text": "Hola, esdrújula amiga."},
+        json={
+            "course_id": course["id"],
+            "user_id": course["_user_id"],
+            "text": "Hola, esdrújula amiga.",
+        },
     )
 
     assert resp.status_code == 200, resp.text
@@ -84,16 +95,21 @@ async def test_analyze_counts_a_mastered_card_as_known(
     client: AsyncClient, db_session: AsyncSession
 ):
     course = await _make_course(client)
-    item = (
-        await client.post(
-            "/api/vocabulary-items",
-            json={"course_id": course["id"], "target_text": "perro", "base_text": "dog"},
-        )
-    ).json()
     deck_user = (
         await client.post(
             "/api/users",
             json={"email": f"{uuid.uuid4().hex[:8]}@example.com", "display_name": "T"},
+        )
+    ).json()
+    item = (
+        await client.post(
+            "/api/vocabulary-items",
+            json={
+                "course_id": course["id"],
+                "user_id": deck_user["id"],
+                "target_text": "perro",
+                "base_text": "dog",
+            },
         )
     ).json()
     deck = (
@@ -116,7 +132,8 @@ async def test_analyze_counts_a_mastered_card_as_known(
     await db_session.flush()
 
     resp = await client.post(
-        "/api/paste-in/analyze", json={"course_id": course["id"], "text": "perro"}
+        "/api/paste-in/analyze",
+        json={"course_id": course["id"], "user_id": deck_user["id"], "text": "perro"},
     )
 
     assert resp.json()["unknown_words"] == []
@@ -148,10 +165,17 @@ async def test_analyze_uses_cjk_segmentation_when_configured(client: AsyncClient
             },
         )
     ).json()
-    await _add_known_word(client, course["id"], "你好")
+    user = (
+        await client.post(
+            "/api/users",
+            json={"email": f"pastein-zh-{suffix}@example.com", "display_name": "Paste-in Test"},
+        )
+    ).json()
+    await _add_known_word(client, course["id"], user["id"], "你好")
 
     resp = await client.post(
-        "/api/paste-in/analyze", json={"course_id": course["id"], "text": "你好，市场。"}
+        "/api/paste-in/analyze",
+        json={"course_id": course["id"], "user_id": user["id"], "text": "你好，市场。"},
     )
 
     assert resp.status_code == 200, resp.text

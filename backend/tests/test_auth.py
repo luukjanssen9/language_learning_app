@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
@@ -46,8 +47,15 @@ def test_decode_session_token_rejects_garbage():
 async def test_first_ever_login_claims_the_legacy_row_in_place(
     client: AsyncClient, db_session: AsyncSession
 ):
-    # The shared dev DB already has its own real, unclaimed seed user --
-    # an explicit, deliberately-ancient created_at (overriding the
+    # The "nobody has ever claimed a Google identity" state this test
+    # needs is no longer reachable in the shared dev DB on its own -- a
+    # real Google sign-in happened during Slice 1's live verification, so
+    # some row now genuinely has a google_sub set. Reset every row's
+    # google_sub within this test's own (savepoint-rolled-back)
+    # transaction to recreate that pre-claim state without touching real
+    # data outside the test.
+    await db_session.execute(update(User).values(google_sub=None))
+    # An explicit, deliberately-ancient created_at (overriding the
     # server_default) guarantees this row is the oldest unclaimed one
     # regardless of what else already exists, without needing to touch
     # (and risk a foreign-key violation deleting) any other row.

@@ -24,7 +24,8 @@ export const queryKeys = {
   exercises: (skillId: string) => ["skills", skillId, "exercises"] as const,
   progress: (userId: string) => ["user-progress", userId] as const,
 
-  vocabulary: (courseId: string) => ["vocabulary-items", courseId] as const,
+  vocabulary: (courseId: string, userId: string) =>
+    ["vocabulary-items", courseId, userId] as const,
   // Generated content is immutable once cached (see the backend's
   // get-or-generate `VocabularyExample` endpoint) -- nothing else in this
   // app should ever invalidate it, so it doesn't need the same
@@ -36,9 +37,11 @@ export const queryKeys = {
   journalEntries: (userId: string, courseId: string) =>
     ["journal-entries", userId, courseId] as const,
 
-  knownVocabulary: (courseId: string) => ["known-vocabulary", courseId] as const,
+  knownVocabulary: (courseId: string, userId: string) =>
+    ["known-vocabulary", courseId, userId] as const,
 
-  readingPassages: (courseId: string) => ["reading-passages", courseId] as const,
+  readingPassages: (courseId: string, userId: string) =>
+    ["reading-passages", courseId, userId] as const,
 
   weakPoints: (userId: string, courseId: string) =>
     ["weak-points", userId, courseId] as const,

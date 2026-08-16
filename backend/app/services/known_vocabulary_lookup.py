@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.card import Card
+from app.models.deck import Deck
 from app.models.enums import CardState
 from app.models.known_vocabulary import KnownVocabularyItem
 from app.models.vocabulary import VocabularyItem
@@ -31,12 +32,18 @@ from app.services.text_normalize import normalize_for_comparison
 
 
 async def get_mastered_vocabulary_items(
-    db: AsyncSession, course_id: uuid.UUID
+    db: AsyncSession, course_id: uuid.UUID, user_id: uuid.UUID
 ) -> list[VocabularyItem]:
     """Full `VocabularyItem` rows for every word with at least one `Card`
     graduated to `REVIEW` -- ground truth, an existing FSRS signal, not a
     new tuned threshold. `.distinct()` because a word can have more than
     one mastered `Card` (e.g. both directions of a dual-direction note).
+
+    Scoped via `Deck.user_id` (joined in), not `VocabularyItem.user_id` --
+    mastery is fundamentally "cards *you've* studied," same join
+    `weak_points.get_weak_cards` already uses; a curriculum word
+    (`VocabularyItem.user_id IS NULL`) mastered via your own deck still
+    counts as yours.
 
     Used both by `_get_mastered_words` below (just the text, for prompt
     injection) and directly by the known-vocabulary page's "Mastered
@@ -47,29 +54,40 @@ async def get_mastered_vocabulary_items(
     result = await db.execute(
         select(VocabularyItem)
         .join(Card, Card.vocabulary_item_id == VocabularyItem.id)
-        .where(VocabularyItem.course_id == course_id, Card.state == CardState.REVIEW)
+        .join(Deck, Deck.id == Card.deck_id)
+        .where(
+            VocabularyItem.course_id == course_id,
+            Card.state == CardState.REVIEW,
+            Deck.user_id == user_id,
+        )
         .distinct()
     )
     return list(result.scalars().all())
 
 
-async def _get_mastered_words(db: AsyncSession, course_id: uuid.UUID) -> list[str]:
-    items = await get_mastered_vocabulary_items(db, course_id)
+async def _get_mastered_words(
+    db: AsyncSession, course_id: uuid.UUID, user_id: uuid.UUID
+) -> list[str]:
+    items = await get_mastered_vocabulary_items(db, course_id, user_id)
     return [item.target_text for item in items]
 
 
-async def _get_estimated_words(db: AsyncSession, course_id: uuid.UUID) -> list[str]:
+async def _get_estimated_words(
+    db: AsyncSession, course_id: uuid.UUID, user_id: uuid.UUID
+) -> list[str]:
     """`KnownVocabularyItem`, any source (placement-check, manual, or
     promoted) -- the starting-assumption estimate.
     """
     result = await db.execute(
-        select(KnownVocabularyItem.target_text).where(KnownVocabularyItem.course_id == course_id)
+        select(KnownVocabularyItem.target_text).where(
+            KnownVocabularyItem.course_id == course_id, KnownVocabularyItem.user_id == user_id
+        )
     )
     return list(result.scalars().all())
 
 
 async def get_known_words_for_passage(
-    db: AsyncSession, course_id: uuid.UUID, sample_cap: int = 300
+    db: AsyncSession, course_id: uuid.UUID, user_id: uuid.UUID, sample_cap: int = 300
 ) -> list[str]:
     """Mastered words are always included in full; estimated words fill
     the rest of the budget via a random sample, both to keep prompt size
@@ -77,23 +95,23 @@ async def get_known_words_for_passage(
     rows, and so regenerating a passage doesn't always draw from the same
     handful of most-common words.
     """
-    mastered_words = await _get_mastered_words(db, course_id)
+    mastered_words = await _get_mastered_words(db, course_id, user_id)
 
     remaining_budget = max(0, sample_cap - len(mastered_words))
     estimated_words: list[str] = []
     if remaining_budget > 0:
-        estimated_pool = await _get_estimated_words(db, course_id)
-        estimated_words = random.sample(
-            estimated_pool, min(remaining_budget, len(estimated_pool))
-        )
+        estimated_pool = await _get_estimated_words(db, course_id, user_id)
+        estimated_words = random.sample(estimated_pool, min(remaining_budget, len(estimated_pool)))
 
     return mastered_words + estimated_words
 
 
-async def get_full_known_word_set(db: AsyncSession, course_id: uuid.UUID) -> set[str]:
+async def get_full_known_word_set(
+    db: AsyncSession, course_id: uuid.UUID, user_id: uuid.UUID
+) -> set[str]:
     """The complete known-word set, normalized (accent/case-insensitive)
     for exact membership testing -- no sampling, no cap.
     """
-    mastered_words = await _get_mastered_words(db, course_id)
-    estimated_words = await _get_estimated_words(db, course_id)
+    mastered_words = await _get_mastered_words(db, course_id, user_id)
+    estimated_words = await _get_estimated_words(db, course_id, user_id)
     return {normalize_for_comparison(w) for w in mastered_words + estimated_words}

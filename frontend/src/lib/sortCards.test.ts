@@ -6,6 +6,7 @@ function makeVocab(overrides: Partial<VocabularyItem>): VocabularyItem {
   return {
     id: "vocab-1",
     course_id: "course-1",
+    user_id: "user-1",
     target_text: "word",
     base_text: "gloss",
     part_of_speech: null,

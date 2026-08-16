@@ -99,8 +99,14 @@ async def get_or_create_vocabulary_item_and_cards(
     """
     normalized_target = normalize_for_comparison(target_text)
     normalized_base = normalize_for_comparison(base_text)
+    # Deliberately excludes NULL (shared curriculum) rows -- a user's own
+    # quick-add/promote should never silently reuse a shared curriculum
+    # note, even if the text matches.
     existing_items = await db.execute(
-        select(VocabularyItem).where(VocabularyItem.course_id == deck.course_id)
+        select(VocabularyItem).where(
+            VocabularyItem.course_id == deck.course_id,
+            VocabularyItem.user_id == deck.user_id,
+        )
     )
     vocabulary_item = next(
         (
@@ -115,6 +121,7 @@ async def get_or_create_vocabulary_item_and_cards(
     if vocabulary_item is None:
         vocabulary_item = VocabularyItem(
             course_id=deck.course_id,
+            user_id=deck.user_id,
             target_text=target_text,
             base_text=base_text,
             part_of_speech=part_of_speech,

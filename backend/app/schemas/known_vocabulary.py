@@ -8,11 +8,13 @@ from app.models.enums import KnownVocabularySource
 
 class KnownVocabularyItemCreate(BaseModel):
     course_id: uuid.UUID
+    user_id: uuid.UUID
     target_text: str
 
 
 class KnownVocabularyBulkCreate(BaseModel):
     course_id: uuid.UUID
+    user_id: uuid.UUID
     target_texts: list[str]
 
 
@@ -21,6 +23,7 @@ class KnownVocabularyItemRead(BaseModel):
 
     id: uuid.UUID
     course_id: uuid.UUID
+    user_id: uuid.UUID
     target_text: str
     source: KnownVocabularySource
     created_at: datetime

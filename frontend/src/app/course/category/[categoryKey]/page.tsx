@@ -35,7 +35,7 @@ export default function CategoryPage() {
   });
   const tenseMoodOptions = conjugationSkillId ? listTenseMoodOptions(exercises) : [];
 
-  const { data: passages = [] } = useReadingPassages(selectedCourseId);
+  const { data: passages = [] } = useReadingPassages(selectedCourseId, userId);
   const generatePassage = useGenerateReadingPassage();
 
   if (!category) {
@@ -77,7 +77,7 @@ export default function CategoryPage() {
         <section className="flex flex-col gap-3">
           <button
             type="button"
-            onClick={() => generatePassage.mutate(selectedCourseId)}
+            onClick={() => generatePassage.mutate({ courseId: selectedCourseId, userId })}
             disabled={generatePassage.isPending}
             className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
           >

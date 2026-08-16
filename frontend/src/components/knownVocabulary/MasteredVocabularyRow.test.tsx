@@ -7,6 +7,7 @@ function makeItem(overrides: Partial<VocabularyItem>): VocabularyItem {
   return {
     id: "v1",
     course_id: "c1",
+    user_id: "user-1",
     target_text: "perro",
     base_text: "dog",
     part_of_speech: null,

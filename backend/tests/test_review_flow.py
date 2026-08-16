@@ -44,13 +44,14 @@ async def _make_deck(client: AsyncClient) -> dict:
     return deck
 
 
-async def _make_card(client: AsyncClient, deck_id: str, course_id: str) -> dict:
+async def _make_card(client: AsyncClient, deck_id: str, course_id: str, user_id: str) -> dict:
     suffix = uuid.uuid4().hex[:8]
     vocab = (
         await client.post(
             "/api/vocabulary-items",
             json={
                 "course_id": course_id,
+                "user_id": user_id,
                 "target_text": f"palabra-{suffix}",
                 "base_text": f"word-{suffix}",
             },
@@ -64,7 +65,7 @@ async def _make_card(client: AsyncClient, deck_id: str, course_id: str) -> dict:
 
 async def test_review_new_card_transitions_out_of_new_state(client: AsyncClient):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     resp = await client.post(f"/api/cards/{card['id']}/review", json={"rating": "good"})
     assert resp.status_code == 200
@@ -84,7 +85,7 @@ async def test_review_missing_card_404s(client: AsyncClient):
 
 async def test_review_invalid_rating_422s(client: AsyncClient):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     resp = await client.post(f"/api/cards/{card['id']}/review", json={"rating": "excellent"})
     assert resp.status_code == 422
@@ -92,7 +93,7 @@ async def test_review_invalid_rating_422s(client: AsyncClient):
 
 async def test_review_naive_reviewed_at_422s(client: AsyncClient):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     resp = await client.post(
         f"/api/cards/{card['id']}/review",
@@ -105,7 +106,7 @@ async def test_multi_step_learning_then_graduation_via_backdated_reviewed_at(
     client: AsyncClient,
 ):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     t0 = datetime.now(UTC) - timedelta(hours=1)
     resp1 = await client.post(
@@ -124,7 +125,7 @@ async def test_multi_step_learning_then_graduation_via_backdated_reviewed_at(
 
 async def test_review_then_lapse_then_relearning(client: AsyncClient):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     resp1 = await client.post(f"/api/cards/{card['id']}/review", json={"rating": "easy"})
     assert resp1.json()["card"]["state"] == "review"
@@ -138,7 +139,7 @@ async def test_review_then_lapse_then_relearning(client: AsyncClient):
 
 async def test_reviewed_at_in_future_400s(client: AsyncClient):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     future = datetime.now(UTC) + timedelta(days=1)
     resp = await client.post(
@@ -150,7 +151,7 @@ async def test_reviewed_at_in_future_400s(client: AsyncClient):
 
 async def test_reviewed_at_before_last_review_400s(client: AsyncClient):
     deck = await _make_deck(client)
-    card = await _make_card(client, deck["id"], deck["_course_id"])
+    card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     t0 = datetime.now(UTC) - timedelta(hours=1)
     await client.post(
@@ -168,8 +169,8 @@ async def test_reviewed_at_before_last_review_400s(client: AsyncClient):
 
 async def test_due_queue_excludes_not_due_and_uncapped_new_cards(client: AsyncClient):
     deck = await _make_deck(client)
-    await _make_card(client, deck["id"], deck["_course_id"])  # a NEW card
-    reviewed_card = await _make_card(client, deck["id"], deck["_course_id"])
+    await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])  # a NEW card
+    reviewed_card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
     await client.post(
         f"/api/cards/{reviewed_card['id']}/review", json={"rating": "good"}
     )  # due ~10 minutes from now, not yet due
@@ -181,8 +182,8 @@ async def test_due_queue_excludes_not_due_and_uncapped_new_cards(client: AsyncCl
 
 async def test_due_queue_orders_most_overdue_first(client: AsyncClient):
     deck = await _make_deck(client)
-    card_a = await _make_card(client, deck["id"], deck["_course_id"])
-    card_b = await _make_card(client, deck["id"], deck["_course_id"])
+    card_a = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
+    card_b = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
 
     now = datetime.now(UTC)
     await client.post(
@@ -203,7 +204,7 @@ async def test_due_queue_appends_new_cards_oldest_first_capped_at_new_limit(
     client: AsyncClient,
 ):
     deck = await _make_deck(client)
-    due_card = await _make_card(client, deck["id"], deck["_course_id"])
+    due_card = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
     await client.post(
         f"/api/cards/{due_card['id']}/review",
         json={
@@ -211,9 +212,11 @@ async def test_due_queue_appends_new_cards_oldest_first_capped_at_new_limit(
             "reviewed_at": (datetime.now(UTC) - timedelta(minutes=30)).isoformat(),
         },
     )
-    new_1 = await _make_card(client, deck["id"], deck["_course_id"])
-    new_2 = await _make_card(client, deck["id"], deck["_course_id"])
-    await _make_card(client, deck["id"], deck["_course_id"])  # new_3, beyond the cap
+    new_1 = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
+    new_2 = await _make_card(client, deck["id"], deck["_course_id"], deck["user_id"])
+    await _make_card(
+        client, deck["id"], deck["_course_id"], deck["user_id"]
+    )  # new_3, beyond the cap
 
     # new_limit is 3, not 2: due_card's own review above is itself a
     # NEW-card's first review (state_before == NEW), which counts toward
@@ -234,8 +237,8 @@ async def test_due_queue_requires_deck_id(client: AsyncClient):
 async def test_due_queue_scopes_to_deck(client: AsyncClient):
     deck_a = await _make_deck(client)
     deck_b = await _make_deck(client)
-    card_a = await _make_card(client, deck_a["id"], deck_a["_course_id"])
-    card_b = await _make_card(client, deck_b["id"], deck_b["_course_id"])
+    card_a = await _make_card(client, deck_a["id"], deck_a["_course_id"], deck_a["user_id"])
+    card_b = await _make_card(client, deck_b["id"], deck_b["_course_id"], deck_b["user_id"])
 
     resp = await client.get("/api/cards/due", params={"deck_id": deck_a["id"], "new_limit": 10})
     ids = [c["id"] for c in resp.json()]

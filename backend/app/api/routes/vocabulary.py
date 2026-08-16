@@ -38,9 +38,18 @@ async def create_vocabulary_item(
 
 @router.get("", response_model=list[VocabularyItemRead])
 async def list_vocabulary_items(
-    course_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+    user_id: uuid.UUID,
+    course_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
 ) -> list[VocabularyItem]:
-    query = select(VocabularyItem).order_by(VocabularyItem.target_text)
+    # user_id OR NULL: shared curriculum content (NULL) stays visible
+    # alongside this user's own personal words -- see
+    # VocabularyItem.user_id's docstring.
+    query = (
+        select(VocabularyItem)
+        .where((VocabularyItem.user_id == user_id) | (VocabularyItem.user_id.is_(None)))
+        .order_by(VocabularyItem.target_text)
+    )
     if course_id is not None:
         query = query.where(VocabularyItem.course_id == course_id)
     result = await db.execute(query)

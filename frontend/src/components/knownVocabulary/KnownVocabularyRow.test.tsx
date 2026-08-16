@@ -18,6 +18,7 @@ function makeItem(overrides: Partial<KnownVocabularyItem>): KnownVocabularyItem 
   return {
     id: "kv-1",
     course_id: "course-1",
+    user_id: "user-1",
     target_text: "hola",
     source: "manual",
     created_at: "2026-08-14T00:00:00Z",

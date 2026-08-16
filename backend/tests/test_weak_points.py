@@ -52,11 +52,18 @@ async def _make_deck(client: AsyncClient, course_id: str, user_id: str) -> str:
     return deck["id"]
 
 
-async def _make_vocab_item(client: AsyncClient, course_id: str, target_text: str) -> str:
+async def _make_vocab_item(
+    client: AsyncClient, course_id: str, user_id: str, target_text: str
+) -> str:
     item = (
         await client.post(
             "/api/vocabulary-items",
-            json={"course_id": course_id, "target_text": target_text, "base_text": target_text},
+            json={
+                "course_id": course_id,
+                "user_id": user_id,
+                "target_text": target_text,
+                "base_text": target_text,
+            },
         )
     ).json()
     return item["id"]
@@ -116,8 +123,8 @@ async def test_weak_cards_ranked_by_lapses_and_excludes_zero_lapses(
 ):
     ctx = await _make_course(client)
     deck_id = await _make_deck(client, ctx["course_id"], ctx["user_id"])
-    weak_item = await _make_vocab_item(client, ctx["course_id"], "gato")
-    fine_item = await _make_vocab_item(client, ctx["course_id"], "perro")
+    weak_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "gato")
+    fine_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "perro")
 
     db_session.add_all(
         [
@@ -180,7 +187,7 @@ async def test_weak_lesson_words_respects_min_attempts_and_accuracy_threshold(
     skill_id = await _make_skill(client, ctx["course_id"], "vocab-basics")
 
     # "malo": 1/2 correct (50% accuracy, 2 attempts) -- should qualify.
-    malo_item = await _make_vocab_item(client, ctx["course_id"], "malo")
+    malo_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "malo")
     malo_exercise = await _make_translation_exercise(client, skill_id, "bad")
     await _link_exercise_vocab(db_session, malo_exercise, malo_item)
     await _submit_attempt(
@@ -191,7 +198,7 @@ async def test_weak_lesson_words_respects_min_attempts_and_accuracy_threshold(
     )
 
     # "bien": always correct -- should NOT qualify (accuracy too high).
-    bien_item = await _make_vocab_item(client, ctx["course_id"], "bien")
+    bien_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "bien")
     bien_exercise = await _make_translation_exercise(client, skill_id, "well")
     await _link_exercise_vocab(db_session, bien_exercise, bien_item)
     await _submit_attempt(
@@ -202,7 +209,7 @@ async def test_weak_lesson_words_respects_min_attempts_and_accuracy_threshold(
     )
 
     # "una-vez": wrong, but only 1 attempt -- should NOT qualify (below MIN_ATTEMPTS).
-    once_item = await _make_vocab_item(client, ctx["course_id"], "una-vez")
+    once_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "una-vez")
     once_exercise = await _make_translation_exercise(client, skill_id, "once")
     await _link_exercise_vocab(db_session, once_exercise, once_item)
     await _submit_attempt(
@@ -264,7 +271,7 @@ async def test_second_course_data_does_not_bleed_in(client: AsyncClient, db_sess
     ctx_b = await _make_course(client)
 
     deck_b = await _make_deck(client, ctx_b["course_id"], ctx_b["user_id"])
-    other_item = await _make_vocab_item(client, ctx_b["course_id"], "otro")
+    other_item = await _make_vocab_item(client, ctx_b["course_id"], ctx_b["user_id"], "otro")
     db_session.add(
         Card(
             deck_id=uuid.UUID(deck_b),

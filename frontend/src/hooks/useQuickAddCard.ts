@@ -13,9 +13,12 @@ export function useQuickAddCard() {
     // rating a card doesn't invalidate dueCards either.
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.cards(variables.deck_id) });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.vocabulary(data.vocabulary_item.course_id),
-      });
+      const userId = data.vocabulary_item.user_id;
+      if (userId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.vocabulary(data.vocabulary_item.course_id, userId),
+        });
+      }
     },
   });
 }

@@ -18,14 +18,16 @@ import { computeCoverage } from "@/lib/coverageAnalysis";
 import { getFrequencyBands } from "@/lib/frequencyBands";
 import { normalizeForComparison } from "@/lib/textNormalize";
 import type { KnownVocabularyItem } from "@/lib/api/types";
+import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { useCourseContext } from "@/providers/CourseProvider";
 
 export default function KnownVocabularyPage() {
+  const { userId } = useBootstrapContext();
   const { selectedCourseId, selectedTargetLanguage } = useCourseContext();
   const { data: decks = [] } = useDecks();
-  const { data: items = [], isPending } = useKnownVocabularyItems(selectedCourseId);
-  const { data: fullSet } = useKnownWordSet(selectedCourseId);
-  const { data: masteredWords = [] } = useMasteredVocabulary(selectedCourseId);
+  const { data: items = [], isPending } = useKnownVocabularyItems(selectedCourseId, userId);
+  const { data: fullSet } = useKnownWordSet(selectedCourseId, userId);
+  const { data: masteredWords = [] } = useMasteredVocabulary(selectedCourseId, userId);
   const addItem = useAddKnownVocabulary();
   const deleteItem = useDeleteKnownVocabulary();
   const promoteItem = usePromoteKnownVocabulary();
@@ -64,7 +66,7 @@ export default function KnownVocabularyPage() {
     const word = newWord.trim();
     if (!word) return;
     addItem.mutate(
-      { course_id: selectedCourseId, target_text: word },
+      { course_id: selectedCourseId, user_id: userId, target_text: word },
       { onSuccess: () => setNewWord("") },
     );
   }
@@ -74,7 +76,7 @@ export default function KnownVocabularyPage() {
   }
 
   async function handleDelete(item: KnownVocabularyItem) {
-    await deleteItem.mutateAsync({ id: item.id, courseId: selectedCourseId });
+    await deleteItem.mutateAsync({ id: item.id, courseId: selectedCourseId, userId });
   }
 
   return (

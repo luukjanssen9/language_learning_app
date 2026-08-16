@@ -26,6 +26,7 @@ const card: Card = {
 const vocabularyItem: VocabularyItem = {
   id: "vocab-1",
   course_id: "course-1",
+  user_id: "user-1",
   target_text: "你好",
   base_text: "hello",
   part_of_speech: "word",

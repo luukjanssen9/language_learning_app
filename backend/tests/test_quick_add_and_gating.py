@@ -204,7 +204,10 @@ async def test_quick_add_is_idempotent_on_matching_target_and_base_text(client: 
     assert first["vocabulary_item"]["id"] == second["vocabulary_item"]["id"]
     assert first["cards"][0]["id"] == second["cards"][0]["id"]
 
-    list_resp = await client.get("/api/vocabulary-items", params={"course_id": deck["course_id"]})
+    list_resp = await client.get(
+        "/api/vocabulary-items",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
+    )
     assert len(list_resp.json()) == 1
 
 
@@ -222,7 +225,10 @@ async def test_quick_add_keeps_distinct_senses_of_a_homonym_separate(client: Asy
         bank_the_institution["vocabulary_item"]["id"] != bank_the_couch["vocabulary_item"]["id"]
     )
 
-    list_resp = await client.get("/api/vocabulary-items", params={"course_id": deck["course_id"]})
+    list_resp = await client.get(
+        "/api/vocabulary-items",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
+    )
     assert len(list_resp.json()) == 2
 
 
@@ -232,17 +238,19 @@ async def test_quick_add_reuses_note_but_adds_missing_card_in_a_different_deck(
     deck = await _make_deck(client)
     first = await _quick_add(client, deck["id"])
 
-    # A second deck in the same course -- own user, since Deck.user_id is
-    # required and this test isn't exercising multi-deck-per-user sharing.
-    course_id = deck["course_id"]
-    user_resp = await client.post(
-        "/api/users", json={"email": "second-deck@example.com", "display_name": "Second Deck"}
-    )
-    user_id = user_resp.json()["id"]
+    # A second deck for the SAME user in the same course (e.g. a separate
+    # "Podcast vocab" deck) -- note-reuse is scoped by user, not by deck
+    # (VocabularyItem.user_id), so this must stay same-user to still
+    # exercise cross-deck reuse; a different user's deck would instead
+    # correctly create its own separate note (see note_cards.py).
     second_deck = (
         await client.post(
             "/api/decks",
-            json={"user_id": user_id, "course_id": course_id, "name": "Second deck"},
+            json={
+                "user_id": deck["user_id"],
+                "course_id": deck["course_id"],
+                "name": "Second deck",
+            },
         )
     ).json()
 
@@ -253,6 +261,39 @@ async def test_quick_add_reuses_note_but_adds_missing_card_in_a_different_deck(
     assert first["vocabulary_item"]["id"] == second["vocabulary_item"]["id"]
     assert first["cards"][0]["id"] != second["cards"][0]["id"]
     assert second["cards"][0]["deck_id"] == second_deck["id"]
+
+
+async def test_quick_add_does_not_reuse_another_users_note_in_the_same_course(
+    client: AsyncClient,
+):
+    """Unlike the same-user cross-deck case above, a different user's
+    quick-add for the identical word must create its own separate note --
+    VocabularyItem.user_id scoping (see note_cards.py) means personal
+    vocabulary is never silently shared across users, even within one
+    course.
+    """
+    deck = await _make_deck(client)
+    first = await _quick_add(client, deck["id"])
+
+    other_user_resp = await client.post(
+        "/api/users", json={"email": "other-user@example.com", "display_name": "Other User"}
+    )
+    other_user_id = other_user_resp.json()["id"]
+    other_deck = (
+        await client.post(
+            "/api/decks",
+            json={
+                "user_id": other_user_id,
+                "course_id": deck["course_id"],
+                "name": "Other user's deck",
+            },
+        )
+    ).json()
+
+    second = await _quick_add(client, other_deck["id"])
+
+    assert first["vocabulary_item"]["id"] != second["vocabulary_item"]["id"]
+    assert second["vocabulary_item"]["user_id"] == other_user_id
 
 
 async def test_daily_new_card_cap_does_not_count_yesterdays_reviews(client: AsyncClient):

@@ -36,11 +36,11 @@ router = APIRouter(prefix="/known-vocabulary", tags=["known-vocabulary"])
 
 @router.get("", response_model=list[KnownVocabularyItemRead])
 async def list_known_vocabulary(
-    course_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> list[KnownVocabularyItem]:
     result = await db.execute(
         select(KnownVocabularyItem)
-        .where(KnownVocabularyItem.course_id == course_id)
+        .where(KnownVocabularyItem.course_id == course_id, KnownVocabularyItem.user_id == user_id)
         .order_by(KnownVocabularyItem.target_text)
     )
     return list(result.scalars().all())
@@ -48,7 +48,7 @@ async def list_known_vocabulary(
 
 @router.get("/full-set", response_model=FullKnownWordSetResponse)
 async def get_known_vocabulary_full_set(
-    course_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> FullKnownWordSetResponse:
     """The complete, normalized known-word set (mastered `Card`s + all
     `KnownVocabularyItem` rows, no sampling) -- see PLAN.md's
@@ -56,13 +56,13 @@ async def get_known_vocabulary_full_set(
     rather than `get_known_words_for_passage`'s prompt-budget-capped
     sample. Sorted for a deterministic response.
     """
-    words = await get_full_known_word_set(db, course_id)
+    words = await get_full_known_word_set(db, course_id, user_id)
     return FullKnownWordSetResponse(words=sorted(words))
 
 
 @router.get("/mastered", response_model=list[VocabularyItemRead])
 async def list_mastered_vocabulary(
-    course_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> list[VocabularyItem]:
     """Full details (target_text, base_text, part_of_speech) for every word
     mastered via FSRS review -- the "known but never touched the
@@ -70,7 +70,7 @@ async def list_mastered_vocabulary(
     as known, complementing this router's `KnownVocabularyItem`-backed
     endpoints above. See PLAN.md's 2026-08-15 decision.
     """
-    items = await get_mastered_vocabulary_items(db, course_id)
+    items = await get_mastered_vocabulary_items(db, course_id, user_id)
     return sorted(items, key=lambda item: item.target_text)
 
 
@@ -80,6 +80,7 @@ async def add_known_vocabulary(
 ) -> KnownVocabularyItem:
     item = KnownVocabularyItem(
         course_id=payload.course_id,
+        user_id=payload.user_id,
         target_text=payload.target_text.strip().lower(),
         source=KnownVocabularySource.MANUAL,
     )
@@ -94,10 +95,10 @@ async def bulk_add_known_vocabulary(
     payload: KnownVocabularyBulkCreate, db: AsyncSession = Depends(get_db)
 ) -> KnownVocabularyBulkCreateResponse:
     """Saves the placement check's estimated known band(s) in one call.
-    `ON CONFLICT DO NOTHING` on `(course_id, target_text)` rather than a
-    Python dedup scan -- unlike quick-add's low-volume, free-typed input,
-    this can insert hundreds of rows from a fixed dataset at once, and
-    retaking the check must stay harmless (no duplicates) on a re-save.
+    `ON CONFLICT DO NOTHING` on `(user_id, course_id, target_text)` rather
+    than a Python dedup scan -- unlike quick-add's low-volume, free-typed
+    input, this can insert hundreds of rows from a fixed dataset at once,
+    and retaking the check must stay harmless (no duplicates) on a re-save.
     """
     words = {w.strip().lower() for w in payload.target_texts if w.strip()}
     if not words:
@@ -109,13 +110,14 @@ async def bulk_add_known_vocabulary(
             [
                 {
                     "course_id": payload.course_id,
+                    "user_id": payload.user_id,
                     "target_text": word,
                     "source": KnownVocabularySource.PLACEMENT_CHECK.value,
                 }
                 for word in words
             ]
         )
-        .on_conflict_do_nothing(index_elements=["course_id", "target_text"])
+        .on_conflict_do_nothing(index_elements=["user_id", "course_id", "target_text"])
         .returning(KnownVocabularyItem.id)
     )
     result = await db.execute(stmt)

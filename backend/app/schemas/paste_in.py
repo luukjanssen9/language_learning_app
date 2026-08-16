@@ -9,6 +9,7 @@ class PasteInAnalyzeRequest(BaseModel):
     """Request body for POST /paste-in/analyze."""
 
     course_id: uuid.UUID
+    user_id: uuid.UUID
     text: str
 
 

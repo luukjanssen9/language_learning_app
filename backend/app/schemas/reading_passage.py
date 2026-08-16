@@ -10,6 +10,7 @@ class ReadingPassageGenerate(BaseModel):
     """Request body for POST /reading-passages."""
 
     course_id: uuid.UUID
+    user_id: uuid.UUID
 
 
 class ReadingPassageQuestion(BaseModel):
@@ -27,6 +28,7 @@ class ReadingPassageRead(BaseModel):
 
     id: uuid.UUID
     course_id: uuid.UUID
+    user_id: uuid.UUID
     target_text: str
     base_text: str
     new_vocabulary: list[NewVocabularyWord]

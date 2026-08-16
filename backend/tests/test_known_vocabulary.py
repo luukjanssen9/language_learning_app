@@ -64,12 +64,33 @@ async def _make_deck(client: AsyncClient) -> dict:
     return deck
 
 
+async def _make_deck_in_course(client: AsyncClient, course_id: str) -> dict:
+    """A second user + deck in an already-existing course -- for testing
+    that two users sharing a course don't see each other's known-vocabulary/
+    mastered data, distinct from `_make_deck`'s always-fresh-course setup.
+    """
+    suffix = uuid.uuid4().hex[:6]
+    user = (
+        await client.post(
+            "/api/users",
+            json={"email": f"knownvocab-{suffix}@example.com", "display_name": "Second User"},
+        )
+    ).json()
+    deck = (
+        await client.post(
+            "/api/decks",
+            json={"user_id": user["id"], "course_id": course_id, "name": "Second user's deck"},
+        )
+    ).json()
+    return deck
+
+
 async def test_manual_add_forces_placement_check_source_to_manual(client: AsyncClient):
     deck = await _make_deck(client)
 
     resp = await client.post(
         "/api/known-vocabulary",
-        json={"course_id": deck["course_id"], "target_text": "Hola"},
+        json={"course_id": deck["course_id"], "user_id": deck["user_id"], "target_text": "Hola"},
     )
 
     assert resp.status_code == 201, resp.text
@@ -83,15 +104,24 @@ async def test_list_known_vocabulary_filters_by_course(client: AsyncClient):
     deck_b = await _make_deck(client)
     await client.post(
         "/api/known-vocabulary",
-        json={"course_id": deck_a["course_id"], "target_text": "casa"},
+        json={
+            "course_id": deck_a["course_id"],
+            "user_id": deck_a["user_id"],
+            "target_text": "casa",
+        },
     )
     await client.post(
         "/api/known-vocabulary",
-        json={"course_id": deck_b["course_id"], "target_text": "perro"},
+        json={
+            "course_id": deck_b["course_id"],
+            "user_id": deck_b["user_id"],
+            "target_text": "perro",
+        },
     )
 
     resp = await client.get(
-        "/api/known-vocabulary", params={"course_id": deck_a["course_id"]}
+        "/api/known-vocabulary",
+        params={"course_id": deck_a["course_id"], "user_id": deck_a["user_id"]},
     )
 
     assert resp.status_code == 200
@@ -104,19 +134,28 @@ async def test_bulk_add_dedupes_via_on_conflict(client: AsyncClient):
 
     first = await client.post(
         "/api/known-vocabulary/bulk",
-        json={"course_id": deck["course_id"], "target_texts": ["uno", "dos", "dos"]},
+        json={
+            "course_id": deck["course_id"],
+            "user_id": deck["user_id"],
+            "target_texts": ["uno", "dos", "dos"],
+        },
     )
     assert first.status_code == 200
     assert first.json()["inserted_count"] == 2  # "dos" deduped within the same call too
 
     second = await client.post(
         "/api/known-vocabulary/bulk",
-        json={"course_id": deck["course_id"], "target_texts": ["dos", "tres"]},
+        json={
+            "course_id": deck["course_id"],
+            "user_id": deck["user_id"],
+            "target_texts": ["dos", "tres"],
+        },
     )
     assert second.json()["inserted_count"] == 1  # only "tres" is new
 
     list_resp = await client.get(
-        "/api/known-vocabulary", params={"course_id": deck["course_id"]}
+        "/api/known-vocabulary",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
     )
     words = {item["target_text"] for item in list_resp.json()}
     assert words == {"uno", "dos", "tres"}
@@ -127,7 +166,11 @@ async def test_delete_known_vocabulary(client: AsyncClient):
     item = (
         await client.post(
             "/api/known-vocabulary",
-            json={"course_id": deck["course_id"], "target_text": "gato"},
+            json={
+                "course_id": deck["course_id"],
+                "user_id": deck["user_id"],
+                "target_text": "gato",
+            },
         )
     ).json()
 
@@ -135,7 +178,8 @@ async def test_delete_known_vocabulary(client: AsyncClient):
     assert resp.status_code == 204
 
     list_resp = await client.get(
-        "/api/known-vocabulary", params={"course_id": deck["course_id"]}
+        "/api/known-vocabulary",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
     )
     assert list_resp.json() == []
 
@@ -145,7 +189,11 @@ async def test_promote_creates_real_vocabulary_item_and_flips_source(client: Asy
     item = (
         await client.post(
             "/api/known-vocabulary",
-            json={"course_id": deck["course_id"], "target_text": "perro"},
+            json={
+                "course_id": deck["course_id"],
+                "user_id": deck["user_id"],
+                "target_text": "perro",
+            },
         )
     ).json()
 
@@ -165,7 +213,8 @@ async def test_promote_creates_real_vocabulary_item_and_flips_source(client: Asy
     assert fake.call_count == 1
 
     list_resp = await client.get(
-        "/api/known-vocabulary", params={"course_id": deck["course_id"]}
+        "/api/known-vocabulary",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
     )
     promoted = next(i for i in list_resp.json() if i["id"] == item["id"])
     assert promoted["source"] == "promoted"
@@ -187,7 +236,11 @@ async def test_promoting_a_word_that_already_exists_as_vocabulary_item_reuses_it
     item = (
         await client.post(
             "/api/known-vocabulary",
-            json={"course_id": deck["course_id"], "target_text": "perro"},
+            json={
+                "course_id": deck["course_id"],
+                "user_id": deck["user_id"],
+                "target_text": "perro",
+            },
         )
     ).json()
 
@@ -203,7 +256,10 @@ async def test_promoting_a_word_that_already_exists_as_vocabulary_item_reuses_it
     assert body["vocabulary_item"]["id"] == existing["vocabulary_item"]["id"]
     assert body["cards"][0]["id"] == existing["cards"][0]["id"]
 
-    list_resp = await client.get("/api/vocabulary-items", params={"course_id": deck["course_id"]})
+    list_resp = await client.get(
+        "/api/vocabulary-items",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
+    )
     assert len(list_resp.json()) == 1
 
 
@@ -212,12 +268,18 @@ async def test_full_set_unions_manual_entries_and_mastered_cards(
 ):
     deck = await _make_deck(client)
     await client.post(
-        "/api/known-vocabulary", json={"course_id": deck["course_id"], "target_text": "Hola"}
+        "/api/known-vocabulary",
+        json={"course_id": deck["course_id"], "user_id": deck["user_id"], "target_text": "Hola"},
     )
     item = (
         await client.post(
             "/api/vocabulary-items",
-            json={"course_id": deck["course_id"], "target_text": "perro", "base_text": "dog"},
+            json={
+                "course_id": deck["course_id"],
+                "user_id": deck["user_id"],
+                "target_text": "perro",
+                "base_text": "dog",
+            },
         )
     ).json()
     # A REVIEW-state card has no HTTP path without real FSRS review timing
@@ -234,7 +296,8 @@ async def test_full_set_unions_manual_entries_and_mastered_cards(
     await db_session.flush()
 
     resp = await client.get(
-        "/api/known-vocabulary/full-set", params={"course_id": deck["course_id"]}
+        "/api/known-vocabulary/full-set",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
     )
 
     assert resp.status_code == 200, resp.text
@@ -248,13 +311,23 @@ async def test_mastered_returns_full_details_and_excludes_non_review_cards(
     mastered_item = (
         await client.post(
             "/api/vocabulary-items",
-            json={"course_id": deck["course_id"], "target_text": "perro", "base_text": "dog"},
+            json={
+                "course_id": deck["course_id"],
+                "user_id": deck["user_id"],
+                "target_text": "perro",
+                "base_text": "dog",
+            },
         )
     ).json()
     new_item = (
         await client.post(
             "/api/vocabulary-items",
-            json={"course_id": deck["course_id"], "target_text": "gato", "base_text": "cat"},
+            json={
+                "course_id": deck["course_id"],
+                "user_id": deck["user_id"],
+                "target_text": "gato",
+                "base_text": "cat",
+            },
         )
     ).json()
     db_session.add_all(
@@ -277,7 +350,8 @@ async def test_mastered_returns_full_details_and_excludes_non_review_cards(
     await db_session.flush()
 
     resp = await client.get(
-        "/api/known-vocabulary/mastered", params={"course_id": deck["course_id"]}
+        "/api/known-vocabulary/mastered",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
     )
 
     assert resp.status_code == 200, resp.text
@@ -294,7 +368,12 @@ async def test_mastered_dedupes_a_word_with_multiple_mastered_cards(
     item = (
         await client.post(
             "/api/vocabulary-items",
-            json={"course_id": deck["course_id"], "target_text": "perro", "base_text": "dog"},
+            json={
+                "course_id": deck["course_id"],
+                "user_id": deck["user_id"],
+                "target_text": "perro",
+                "base_text": "dog",
+            },
         )
     ).json()
     db_session.add_all(
@@ -316,8 +395,139 @@ async def test_mastered_dedupes_a_word_with_multiple_mastered_cards(
     await db_session.flush()
 
     resp = await client.get(
-        "/api/known-vocabulary/mastered", params={"course_id": deck["course_id"]}
+        "/api/known-vocabulary/mastered",
+        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
     )
 
     assert resp.status_code == 200, resp.text
     assert len(resp.json()) == 1
+
+
+async def test_manual_add_same_word_does_not_collide_across_users_in_same_course(
+    client: AsyncClient,
+):
+    """Unique constraint is (user_id, course_id, target_text), not just
+    (course_id, target_text) -- two users sharing a course can each know
+    the same word.
+    """
+    deck_a = await _make_deck(client)
+    deck_b = await _make_deck_in_course(client, deck_a["course_id"])
+
+    resp_a = await client.post(
+        "/api/known-vocabulary",
+        json={"course_id": deck_a["course_id"], "user_id": deck_a["user_id"], "target_text": "sol"},
+    )
+    resp_b = await client.post(
+        "/api/known-vocabulary",
+        json={"course_id": deck_b["course_id"], "user_id": deck_b["user_id"], "target_text": "sol"},
+    )
+
+    assert resp_a.status_code == 201, resp_a.text
+    assert resp_b.status_code == 201, resp_b.text
+    assert resp_a.json()["id"] != resp_b.json()["id"]
+
+
+async def test_bulk_add_does_not_collide_across_users_in_same_course(client: AsyncClient):
+    deck_a = await _make_deck(client)
+    deck_b = await _make_deck_in_course(client, deck_a["course_id"])
+
+    resp_a = await client.post(
+        "/api/known-vocabulary/bulk",
+        json={
+            "course_id": deck_a["course_id"],
+            "user_id": deck_a["user_id"],
+            "target_texts": ["luna"],
+        },
+    )
+    resp_b = await client.post(
+        "/api/known-vocabulary/bulk",
+        json={
+            "course_id": deck_b["course_id"],
+            "user_id": deck_b["user_id"],
+            "target_texts": ["luna"],
+        },
+    )
+
+    assert resp_a.json()["inserted_count"] == 1
+    assert resp_b.json()["inserted_count"] == 1  # not swallowed by the other user's row
+
+
+async def test_list_full_set_and_mastered_exclude_other_users_data(
+    client: AsyncClient, db_session: AsyncSession
+):
+    deck_a = await _make_deck(client)
+    deck_b = await _make_deck_in_course(client, deck_a["course_id"])
+
+    await client.post(
+        "/api/known-vocabulary",
+        json={
+            "course_id": deck_a["course_id"],
+            "user_id": deck_a["user_id"],
+            "target_text": "estrella",
+        },
+    )
+    await client.post(
+        "/api/known-vocabulary",
+        json={
+            "course_id": deck_b["course_id"],
+            "user_id": deck_b["user_id"],
+            "target_text": "planeta",
+        },
+    )
+    item_a = (
+        await client.post(
+            "/api/vocabulary-items",
+            json={
+                "course_id": deck_a["course_id"],
+                "user_id": deck_a["user_id"],
+                "target_text": "perro",
+                "base_text": "dog",
+            },
+        )
+    ).json()
+    item_b = (
+        await client.post(
+            "/api/vocabulary-items",
+            json={
+                "course_id": deck_b["course_id"],
+                "user_id": deck_b["user_id"],
+                "target_text": "gato",
+                "base_text": "cat",
+            },
+        )
+    ).json()
+    db_session.add_all(
+        [
+            Card(
+                deck_id=uuid.UUID(deck_a["id"]),
+                vocabulary_item_id=uuid.UUID(item_a["id"]),
+                direction=CardDirection.TARGET_TO_BASE,
+                state=CardState.REVIEW,
+            ),
+            Card(
+                deck_id=uuid.UUID(deck_b["id"]),
+                vocabulary_item_id=uuid.UUID(item_b["id"]),
+                direction=CardDirection.TARGET_TO_BASE,
+                state=CardState.REVIEW,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    list_resp = await client.get(
+        "/api/known-vocabulary",
+        params={"course_id": deck_a["course_id"], "user_id": deck_a["user_id"]},
+    )
+    assert [i["target_text"] for i in list_resp.json()] == ["estrella"]
+
+    full_set_resp = await client.get(
+        "/api/known-vocabulary/full-set",
+        params={"course_id": deck_a["course_id"], "user_id": deck_a["user_id"]},
+    )
+    assert full_set_resp.json()["words"] == ["estrella", "perro"]
+
+    mastered_resp = await client.get(
+        "/api/known-vocabulary/mastered",
+        params={"course_id": deck_a["course_id"], "user_id": deck_a["user_id"]},
+    )
+    assert [i["target_text"] for i in mastered_resp.json()] == ["perro"]

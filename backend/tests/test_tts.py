@@ -57,10 +57,21 @@ async def _make_vocabulary_item(
             },
         )
     ).json()
+    user = (
+        await client.post(
+            "/api/users",
+            json={"email": f"audio-{suffix}@example.com", "display_name": "Audio Test"},
+        )
+    ).json()
     item = (
         await client.post(
             "/api/vocabulary-items",
-            json={"course_id": course["id"], "target_text": "hola", "base_text": "hello"},
+            json={
+                "course_id": course["id"],
+                "user_id": user["id"],
+                "target_text": "hola",
+                "base_text": "hello",
+            },
         )
     ).json()
     return item

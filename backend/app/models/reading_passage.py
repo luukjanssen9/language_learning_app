@@ -21,6 +21,12 @@ class ReadingPassage(UUIDPkMixin, CreatedAtMixin, Base):
 
     __tablename__ = "reading_passages"
 
+    # Not nullable -- every passage is generated on demand for a specific
+    # user's current known-vocabulary state, no shared/curriculum
+    # equivalent (unlike VocabularyItem.user_id).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
     course_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False, index=True
     )

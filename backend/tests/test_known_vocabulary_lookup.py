@@ -49,7 +49,9 @@ async def _make_deck(db: AsyncSession, course: Course) -> Deck:
 
 
 async def _make_mastered_card(db: AsyncSession, course: Course, deck: Deck, word: str) -> None:
-    item = VocabularyItem(course_id=course.id, target_text=word, base_text=f"{word}-en")
+    item = VocabularyItem(
+        course_id=course.id, user_id=deck.user_id, target_text=word, base_text=f"{word}-en"
+    )
     db.add(item)
     await db.flush()
     card = Card(
@@ -68,7 +70,7 @@ async def test_mastered_words_are_always_included(db_session: AsyncSession):
     await _make_mastered_card(db_session, course, deck, "perro")
     await _make_mastered_card(db_session, course, deck, "gato")
 
-    words = await get_known_words_for_passage(db_session, course.id)
+    words = await get_known_words_for_passage(db_session, course.id, deck.user_id)
 
     assert set(words) == {"perro", "gato"}
 
@@ -76,7 +78,9 @@ async def test_mastered_words_are_always_included(db_session: AsyncSession):
 async def test_new_card_state_is_not_counted_as_mastered(db_session: AsyncSession):
     course = await _make_course(db_session)
     deck = await _make_deck(db_session, course)
-    item = VocabularyItem(course_id=course.id, target_text="nuevo", base_text="new")
+    item = VocabularyItem(
+        course_id=course.id, user_id=deck.user_id, target_text="nuevo", base_text="new"
+    )
     db_session.add(item)
     await db_session.flush()
     card = Card(
@@ -88,7 +92,7 @@ async def test_new_card_state_is_not_counted_as_mastered(db_session: AsyncSessio
     db_session.add(card)
     await db_session.flush()
 
-    words = await get_known_words_for_passage(db_session, course.id)
+    words = await get_known_words_for_passage(db_session, course.id, deck.user_id)
 
     assert words == []
 
@@ -101,13 +105,14 @@ async def test_estimated_words_fill_remaining_budget_up_to_cap(db_session: Async
         db_session.add(
             KnownVocabularyItem(
                 course_id=course.id,
+                user_id=deck.user_id,
                 target_text=f"word{i}",
                 source=KnownVocabularySource.PLACEMENT_CHECK,
             )
         )
     await db_session.flush()
 
-    words = await get_known_words_for_passage(db_session, course.id, sample_cap=4)
+    words = await get_known_words_for_passage(db_session, course.id, deck.user_id, sample_cap=4)
 
     assert "perro" in words
     assert len(words) == 4  # 1 mastered + 3 sampled estimated, capped at 4 total
@@ -115,8 +120,9 @@ async def test_estimated_words_fill_remaining_budget_up_to_cap(db_session: Async
 
 async def test_empty_known_vocabulary_returns_empty_list_without_erroring(db_session: AsyncSession):
     course = await _make_course(db_session)
+    deck = await _make_deck(db_session, course)
 
-    words = await get_known_words_for_passage(db_session, course.id)
+    words = await get_known_words_for_passage(db_session, course.id, deck.user_id)
 
     assert words == []
 
@@ -129,13 +135,14 @@ async def test_full_known_word_set_is_uncapped_and_normalized(db_session: AsyncS
         db_session.add(
             KnownVocabularyItem(
                 course_id=course.id,
+                user_id=deck.user_id,
                 target_text=f"word{i}",
                 source=KnownVocabularySource.PLACEMENT_CHECK,
             )
         )
     await db_session.flush()
 
-    words = await get_full_known_word_set(db_session, course.id)
+    words = await get_full_known_word_set(db_session, course.id, deck.user_id)
 
     assert len(words) == 501  # every row present, nothing sampled away
     assert "perro" in words  # normalized (lowercased) form
@@ -147,19 +154,54 @@ async def test_full_known_word_set_unions_mastered_and_estimated(db_session: Asy
     await _make_mastered_card(db_session, course, deck, "perro")
     db_session.add(
         KnownVocabularyItem(
-            course_id=course.id, target_text="gato", source=KnownVocabularySource.MANUAL
+            course_id=course.id,
+            user_id=deck.user_id,
+            target_text="gato",
+            source=KnownVocabularySource.MANUAL,
         )
     )
     await db_session.flush()
 
-    words = await get_full_known_word_set(db_session, course.id)
+    words = await get_full_known_word_set(db_session, course.id, deck.user_id)
 
     assert words == {"perro", "gato"}
 
 
 async def test_full_known_word_set_empty_returns_empty_set(db_session: AsyncSession):
     course = await _make_course(db_session)
+    deck = await _make_deck(db_session, course)
 
-    words = await get_full_known_word_set(db_session, course.id)
+    words = await get_full_known_word_set(db_session, course.id, deck.user_id)
 
     assert words == set()
+
+
+async def test_mastered_and_estimated_words_exclude_other_users_in_same_course(
+    db_session: AsyncSession,
+):
+    course = await _make_course(db_session)
+    deck_a = await _make_deck(db_session, course)
+    deck_b = await _make_deck(db_session, course)
+    await _make_mastered_card(db_session, course, deck_a, "perro")
+    await _make_mastered_card(db_session, course, deck_b, "gato")
+    db_session.add_all(
+        [
+            KnownVocabularyItem(
+                course_id=course.id,
+                user_id=deck_a.user_id,
+                target_text="sol",
+                source=KnownVocabularySource.MANUAL,
+            ),
+            KnownVocabularyItem(
+                course_id=course.id,
+                user_id=deck_b.user_id,
+                target_text="luna",
+                source=KnownVocabularySource.MANUAL,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    words = await get_full_known_word_set(db_session, course.id, deck_a.user_id)
+
+    assert words == {"perro", "sol"}

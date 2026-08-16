@@ -30,6 +30,16 @@ class VocabularyItem(UUIDPkMixin, CreatedAtMixin, Base):
     course_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False, index=True
     )
+    # Nullable: NULL means shared curriculum content (the handful of
+    # seeded words a Skill's LessonExercise references via
+    # LessonExerciseVocabulary -- no deck, no card, no personal owner);
+    # a real value means a specific user's own word (quick-add, journal
+    # correction, paste-in, promotion, vocab-deck notes) -- see PLAN.md's
+    # 2026-08-15 Phase 8 slice 2 decision for why this needed to be
+    # nullable rather than every user getting their own curriculum copy.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
+    )
     target_text: Mapped[str] = mapped_column(String(500), nullable=False)
     base_text: Mapped[str] = mapped_column(String(500), nullable=False)
     part_of_speech: Mapped[str | None] = mapped_column(String(50), nullable=True)

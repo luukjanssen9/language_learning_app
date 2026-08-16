@@ -33,13 +33,14 @@ async def create_reading_passage(
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)
 
-    known_words = await get_known_words_for_passage(db, course.id)
+    known_words = await get_known_words_for_passage(db, course.id, payload.user_id)
     result = await generate_reading_passage(
         llm, target_language.name, base_language.name, known_words
     )
 
     passage = ReadingPassage(
         course_id=course.id,
+        user_id=payload.user_id,
         target_text=result.target_text,
         base_text=result.base_text,
         new_vocabulary=[w.model_dump() for w in result.new_vocabulary],
@@ -53,11 +54,11 @@ async def create_reading_passage(
 
 @router.get("", response_model=list[ReadingPassageRead])
 async def list_reading_passages(
-    course_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> list[ReadingPassage]:
     query = (
         select(ReadingPassage)
-        .where(ReadingPassage.course_id == course_id)
+        .where(ReadingPassage.course_id == course_id, ReadingPassage.user_id == user_id)
         .order_by(ReadingPassage.created_at.desc())
     )
     result = await db.execute(query)
