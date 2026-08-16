@@ -10,11 +10,11 @@ export function useRoleplayScenarios() {
   });
 }
 
-export function useConversations(userId: string, courseId: string) {
+export function useConversations(courseId: string) {
   return useQuery({
-    queryKey: queryKeys.conversations(userId, courseId),
-    queryFn: () => roleplayApi.listConversations(userId, courseId),
-    enabled: Boolean(userId && courseId),
+    queryKey: queryKeys.conversations(courseId),
+    queryFn: () => roleplayApi.listConversations(courseId),
+    enabled: Boolean(courseId),
   });
 }
 
@@ -24,24 +24,24 @@ export function useStartConversation() {
     mutationFn: (payload: ConversationStartPayload) => roleplayApi.startConversation(payload),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.conversations(data.conversation.user_id, data.conversation.course_id),
+        queryKey: queryKeys.conversations(data.conversation.course_id),
       });
     },
   });
 }
 
-export function useConversationMessages(conversationId: string, userId: string) {
+export function useConversationMessages(conversationId: string) {
   return useQuery({
     queryKey: queryKeys.conversationMessages(conversationId),
-    queryFn: () => roleplayApi.messages(conversationId, userId),
+    queryFn: () => roleplayApi.messages(conversationId),
     enabled: Boolean(conversationId),
   });
 }
 
-export function useSendMessage(conversationId: string, userId: string) {
+export function useSendMessage(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (text: string) => roleplayApi.sendMessage(conversationId, userId, text),
+    mutationFn: (text: string) => roleplayApi.sendMessage(conversationId, text),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversationMessages(conversationId),

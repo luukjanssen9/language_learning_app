@@ -13,8 +13,8 @@ export function useSubmitAttempt() {
       exerciseId: string;
       payload: UserExerciseAttemptSubmitPayload;
     }) => lessonExercisesApi.submitAttempt(exerciseId, payload),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.progress(data.progress.user_id) });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.progress });
     },
   });
 }

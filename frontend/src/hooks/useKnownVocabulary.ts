@@ -6,10 +6,10 @@ import type {
 } from "@/lib/api/types";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function useKnownVocabularyItems(courseId: string, userId: string) {
+export function useKnownVocabularyItems(courseId: string) {
   return useQuery({
-    queryKey: queryKeys.knownVocabulary(courseId, userId),
-    queryFn: () => knownVocabularyApi.list(courseId, userId),
+    queryKey: queryKeys.knownVocabulary(courseId),
+    queryFn: () => knownVocabularyApi.list(courseId),
   });
 }
 
@@ -17,20 +17,20 @@ export function useKnownVocabularyItems(courseId: string, userId: string) {
 // KnownVocabularyItem rows, no sampling) -- for coverage-gap analysis,
 // which needs exact membership testing rather than useKnownVocabularyItems'
 // row objects (which only cover the estimated half, not mastered Cards).
-export function useKnownWordSet(courseId: string, userId: string) {
+export function useKnownWordSet(courseId: string) {
   return useQuery({
-    queryKey: [...queryKeys.knownVocabulary(courseId, userId), "full-set"],
-    queryFn: () => knownVocabularyApi.fullSet(courseId, userId),
+    queryKey: [...queryKeys.knownVocabulary(courseId), "full-set"],
+    queryFn: () => knownVocabularyApi.fullSet(courseId),
   });
 }
 
 // The "known but never touched the known-vocabulary system" half of what
 // the known-vocabulary page shows as known -- words mastered purely
 // through normal deck review, complementing useKnownVocabularyItems above.
-export function useMasteredVocabulary(courseId: string, userId: string) {
+export function useMasteredVocabulary(courseId: string) {
   return useQuery({
-    queryKey: [...queryKeys.knownVocabulary(courseId, userId), "mastered"],
-    queryFn: () => knownVocabularyApi.mastered(courseId, userId),
+    queryKey: [...queryKeys.knownVocabulary(courseId), "mastered"],
+    queryFn: () => knownVocabularyApi.mastered(courseId),
   });
 }
 
@@ -41,7 +41,7 @@ export function useAddKnownVocabulary() {
       knownVocabularyApi.create(payload),
     onSuccess: (data) =>
       queryClient.invalidateQueries({
-        queryKey: queryKeys.knownVocabulary(data.course_id, data.user_id),
+        queryKey: queryKeys.knownVocabulary(data.course_id),
       }),
   });
 }
@@ -53,7 +53,7 @@ export function useBulkAddKnownVocabulary() {
       knownVocabularyApi.bulkCreate(payload),
     onSuccess: (_data, variables) =>
       queryClient.invalidateQueries({
-        queryKey: queryKeys.knownVocabulary(variables.course_id, variables.user_id),
+        queryKey: queryKeys.knownVocabulary(variables.course_id),
       }),
   });
 }
@@ -61,11 +61,10 @@ export function useBulkAddKnownVocabulary() {
 export function useDeleteKnownVocabulary() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id }: { id: string; courseId: string; userId: string }) =>
-      knownVocabularyApi.remove(id),
+    mutationFn: ({ id }: { id: string; courseId: string }) => knownVocabularyApi.remove(id),
     onSuccess: (_data, variables) =>
       queryClient.invalidateQueries({
-        queryKey: queryKeys.knownVocabulary(variables.courseId, variables.userId),
+        queryKey: queryKeys.knownVocabulary(variables.courseId),
       }),
   });
 }
@@ -80,16 +79,13 @@ export function usePromoteKnownVocabulary() {
     mutationFn: ({ id, deckId }: { id: string; deckId: string }) =>
       knownVocabularyApi.promote(id, { deck_id: deckId }),
     onSuccess: (data, variables) => {
-      const userId = data.vocabulary_item.user_id;
       queryClient.invalidateQueries({ queryKey: queryKeys.cards(variables.deckId) });
-      if (userId) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.vocabulary(data.vocabulary_item.course_id, userId),
-        });
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.knownVocabulary(data.vocabulary_item.course_id, userId),
-        });
-      }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.vocabulary(data.vocabulary_item.course_id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.knownVocabulary(data.vocabulary_item.course_id),
+      });
     },
   });
 }

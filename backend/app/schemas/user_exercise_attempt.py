@@ -23,14 +23,8 @@ class UserExerciseAttemptRead(BaseModel):
 
 
 class UserExerciseAttemptSubmit(BaseModel):
-    """Request body for POST /lesson-exercises/{exercise_id}/attempt.
+    """Request body for POST /lesson-exercises/{exercise_id}/attempt."""
 
-    Needs an explicit `user_id` -- unlike `Card` (owned via its `Deck`), a
-    `LessonExercise` belongs to a `Skill`/course shared by everyone, so
-    there's no implicit owner to infer the attempt from.
-    """
-
-    user_id: uuid.UUID
     submitted_answer: dict
 
 

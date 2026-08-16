@@ -8,15 +8,13 @@ import {
   useRoleplayScenarios,
   useStartConversation,
 } from "@/hooks/useRoleplay";
-import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { useCourseContext } from "@/providers/CourseProvider";
 
 export default function RoleplayPage() {
   const router = useRouter();
-  const { userId } = useBootstrapContext();
   const { selectedCourseId } = useCourseContext();
   const { data: scenarios = [] } = useRoleplayScenarios();
-  const { data: conversations = [], isPending } = useConversations(userId, selectedCourseId);
+  const { data: conversations = [], isPending } = useConversations(selectedCourseId);
   const startConversation = useStartConversation();
   const [startingScenarioId, setStartingScenarioId] = useState<string | null>(null);
 
@@ -24,7 +22,6 @@ export default function RoleplayPage() {
     setStartingScenarioId(scenarioId);
     try {
       const result = await startConversation.mutateAsync({
-        user_id: userId,
         course_id: selectedCourseId,
         scenario_id: scenarioId,
       });

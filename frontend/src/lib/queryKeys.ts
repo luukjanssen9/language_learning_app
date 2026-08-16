@@ -22,10 +22,9 @@ export const queryKeys = {
   // invalidating progress after an attempt can never prefix-match and
   // silently refetch/reshuffle a session's in-progress exercise queue.
   exercises: (skillId: string) => ["skills", skillId, "exercises"] as const,
-  progress: (userId: string) => ["user-progress", userId] as const,
+  progress: ["user-progress"] as const,
 
-  vocabulary: (courseId: string, userId: string) =>
-    ["vocabulary-items", courseId, userId] as const,
+  vocabulary: (courseId: string) => ["vocabulary-items", courseId] as const,
   // Generated content is immutable once cached (see the backend's
   // get-or-generate `VocabularyExample` endpoint) -- nothing else in this
   // app should ever invalidate it, so it doesn't need the same
@@ -34,21 +33,16 @@ export const queryKeys = {
   vocabularyExamples: (vocabularyItemId: string) =>
     ["vocabulary-items", vocabularyItemId, "examples"] as const,
 
-  journalEntries: (userId: string, courseId: string) =>
-    ["journal-entries", userId, courseId] as const,
+  journalEntries: (courseId: string) => ["journal-entries", courseId] as const,
 
-  knownVocabulary: (courseId: string, userId: string) =>
-    ["known-vocabulary", courseId, userId] as const,
+  knownVocabulary: (courseId: string) => ["known-vocabulary", courseId] as const,
 
-  readingPassages: (courseId: string, userId: string) =>
-    ["reading-passages", courseId, userId] as const,
+  readingPassages: (courseId: string) => ["reading-passages", courseId] as const,
 
-  weakPoints: (userId: string, courseId: string) =>
-    ["weak-points", userId, courseId] as const,
+  weakPoints: (courseId: string) => ["weak-points", courseId] as const,
 
   roleplayScenarios: ["roleplay-scenarios"] as const,
-  conversations: (userId: string, courseId: string) =>
-    ["conversations", userId, courseId] as const,
+  conversations: (courseId: string) => ["conversations", courseId] as const,
   conversationMessages: (conversationId: string) =>
     ["conversation-messages", conversationId] as const,
 };

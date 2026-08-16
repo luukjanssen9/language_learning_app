@@ -3,6 +3,7 @@ import { Fraunces, Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
 import { QueryProvider } from "@/providers/QueryProvider";
+import { AuthProvider } from "@/providers/AuthProvider";
 import { BootstrapProvider } from "@/providers/BootstrapProvider";
 
 const fraunces = Fraunces({
@@ -29,10 +30,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${fraunces.variable} ${hankenGrotesk.variable}`}>
       <body className="bg-bg text-ink font-sans antialiased">
         <QueryProvider>
-          <BootstrapProvider>
-            <Nav />
-            {children}
-          </BootstrapProvider>
+          <AuthProvider>
+            <BootstrapProvider>
+              <Nav />
+              {children}
+            </BootstrapProvider>
+          </AuthProvider>
         </QueryProvider>
       </body>
     </html>

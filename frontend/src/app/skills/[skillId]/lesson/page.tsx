@@ -28,7 +28,7 @@ function BackToCourse() {
 
 export default function LessonSessionPage() {
   const { skillId } = useParams<{ skillId: string }>();
-  const { userId, courseId } = useBootstrapContext();
+  const { courseId } = useBootstrapContext();
 
   // Reuses the same `skills` query the dashboard already populated (same
   // courseId, same query key) rather than a separate get-by-id fetch --
@@ -57,7 +57,7 @@ export default function LessonSessionPage() {
       submitAttempt.mutate(
         {
           exerciseId: currentExercise.id,
-          payload: { user_id: userId, submitted_answer: submittedAnswer },
+          payload: { submitted_answer: submittedAnswer },
         },
         {
           onSuccess: (data) =>
@@ -69,7 +69,7 @@ export default function LessonSessionPage() {
         },
       );
     },
-    [currentExercise, submitAttempt, userId],
+    [currentExercise, submitAttempt],
   );
 
   const handleContinue = useCallback(() => {

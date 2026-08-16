@@ -11,17 +11,17 @@ import type {
 } from "./types";
 
 export const knownVocabularyApi = {
-  list: (courseId: string, userId: string) =>
+  list: (courseId: string) =>
     api.get<KnownVocabularyItem[]>(
-      `/known-vocabulary?${new URLSearchParams({ course_id: courseId, user_id: userId })}`,
+      `/known-vocabulary?${new URLSearchParams({ course_id: courseId })}`,
     ),
-  fullSet: (courseId: string, userId: string) =>
+  fullSet: (courseId: string) =>
     api.get<KnownVocabularyFullSetResponse>(
-      `/known-vocabulary/full-set?${new URLSearchParams({ course_id: courseId, user_id: userId })}`,
+      `/known-vocabulary/full-set?${new URLSearchParams({ course_id: courseId })}`,
     ),
-  mastered: (courseId: string, userId: string) =>
+  mastered: (courseId: string) =>
     api.get<VocabularyItem[]>(
-      `/known-vocabulary/mastered?${new URLSearchParams({ course_id: courseId, user_id: userId })}`,
+      `/known-vocabulary/mastered?${new URLSearchParams({ course_id: courseId })}`,
     ),
   create: (payload: KnownVocabularyItemCreatePayload) =>
     api.post<KnownVocabularyItem>("/known-vocabulary", payload),

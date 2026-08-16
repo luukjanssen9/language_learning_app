@@ -29,9 +29,9 @@ class FakeLLMProvider:
         return self.result
 
 
-async def _make_course(client: AsyncClient) -> dict:
-    """Builds Language(x2) -> Course -> User via HTTP. Returns the course
-    dict with `_user_id` stashed on it.
+async def _make_course(client: AsyncClient, login_as) -> dict:
+    """Builds Language(x2) -> Course -> User via HTTP, then logs in as that
+    user. Returns the course dict with `_user_id` stashed on it.
     """
     suffix = uuid.uuid4().hex[:6]  # Language.code is capped at String(10)
     lang_en = (
@@ -57,6 +57,7 @@ async def _make_course(client: AsyncClient) -> dict:
             json={"email": f"journal-{suffix}@example.com", "display_name": "Journal Test"},
         )
     ).json()
+    await login_as(user["id"])
     course["_user_id"] = user["id"]
     return course
 
@@ -82,14 +83,13 @@ def _canned_result() -> JournalCorrectionResult:
     )
 
 
-async def test_submit_journal_entry_persists_correction(client: AsyncClient):
-    course = await _make_course(client)
+async def test_submit_journal_entry_persists_correction(client: AsyncClient, login_as):
+    course = await _make_course(client, login_as)
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(_canned_result())
 
     resp = await client.post(
         "/api/journal-entries",
         json={
-            "user_id": course["_user_id"],
             "course_id": course["id"],
             "text": "Ayer voy al mercado.",
         },
@@ -131,10 +131,10 @@ def _entry(*, user_id, course_id, text: str, created_at: datetime) -> JournalEnt
 
 
 async def test_list_journal_entries_returns_newest_first_scoped_to_course(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    course = await _make_course(client)
-    other_course = await _make_course(client)
+    course = await _make_course(client, login_as)
+    other_course = await _make_course(client, login_as)
     user_id = course["_user_id"]
 
     # Inserted directly (not via POST) with explicit, distinct timestamps --
@@ -166,9 +166,8 @@ async def test_list_journal_entries_returns_newest_first_scoped_to_course(
     )
     await db_session.commit()
 
-    resp = await client.get(
-        "/api/journal-entries", params={"user_id": user_id, "course_id": course["id"]}
-    )
+    await login_as(user_id)
+    resp = await client.get("/api/journal-entries", params={"course_id": course["id"]})
 
     assert resp.status_code == 200
     body = resp.json()

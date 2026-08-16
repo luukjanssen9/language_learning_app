@@ -7,17 +7,15 @@ import { useJournalEntries, useSubmitJournalEntry } from "@/hooks/useJournal";
 import { useQuickAddCard } from "@/hooks/useQuickAddCard";
 import { useVocabularyItems } from "@/hooks/useVocabulary";
 import type { VocabSuggestion } from "@/lib/api/types";
-import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { useCourseContext } from "@/providers/CourseProvider";
 
 export default function JournalPage() {
-  const { userId } = useBootstrapContext();
   const { selectedCourseId } = useCourseContext();
-  const { data: decks = [] } = useDecks(userId);
-  const { data: entries = [], isPending } = useJournalEntries(userId, selectedCourseId);
-  const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId, userId);
+  const { data: decks = [] } = useDecks();
+  const { data: entries = [], isPending } = useJournalEntries(selectedCourseId);
+  const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId);
   const submitEntry = useSubmitJournalEntry();
-  const quickAdd = useQuickAddCard(userId);
+  const quickAdd = useQuickAddCard();
 
   const [text, setText] = useState("");
 
@@ -37,7 +35,7 @@ export default function JournalPage() {
     e.preventDefault();
     if (!text.trim()) return;
     submitEntry.mutate(
-      { user_id: userId, course_id: selectedCourseId, text: text.trim() },
+      { course_id: selectedCourseId, text: text.trim() },
       { onSuccess: () => setText("") },
     );
   }

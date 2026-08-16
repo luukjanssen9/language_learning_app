@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict
 class JournalEntrySubmit(BaseModel):
     """Request body for POST /journal-entries."""
 
-    user_id: uuid.UUID
     course_id: uuid.UUID
     text: str
 

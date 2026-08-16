@@ -87,18 +87,18 @@ function ComprehensionQuestionCard({
 
 export default function ReadingPassagePage() {
   const { passageId } = useParams<{ passageId: string }>();
-  const { userId, courseId } = useBootstrapContext();
+  const { courseId } = useBootstrapContext();
 
   // Reuses the same reading-passages query the category page already
   // populated (same courseId, same query key) -- same convention as the
   // lesson session page reusing the dashboard's skills query.
-  const { data: passages = [], isPending } = useReadingPassages(courseId, userId);
+  const { data: passages = [], isPending } = useReadingPassages(courseId);
   const passage = passages.find((p) => p.id === passageId);
 
-  const { data: decks = [] } = useDecks(userId);
-  const { data: vocabItems = [] } = useVocabularyItems(courseId, userId);
-  const { data: knownWords = [] } = useKnownVocabularyItems(courseId, userId);
-  const quickAdd = useQuickAddCard(userId);
+  const { data: decks = [] } = useDecks();
+  const { data: vocabItems = [] } = useVocabularyItems(courseId);
+  const { data: knownWords = [] } = useKnownVocabularyItems(courseId);
+  const quickAdd = useQuickAddCard();
   const markKnown = useAddKnownVocabulary();
   const submitAttempt = useSubmitReadingPassageAttempt();
 
@@ -118,7 +118,6 @@ export default function ReadingPassagePage() {
   async function handleMarkKnown(word: NewVocabularyWord) {
     await markKnown.mutateAsync({
       course_id: courseId,
-      user_id: userId,
       target_text: word.target_text,
     });
   }
@@ -126,7 +125,7 @@ export default function ReadingPassagePage() {
   async function handleSubmitAnswer(questionIndex: number, submittedAnswer: string) {
     const result = await submitAttempt.mutateAsync({
       passageId: passage!.id,
-      payload: { user_id: userId, question_index: questionIndex, submitted_answer: submittedAnswer },
+      payload: { question_index: questionIndex, submitted_answer: submittedAnswer },
     });
     return { is_correct: result.is_correct, llm_feedback: result.llm_feedback };
   }

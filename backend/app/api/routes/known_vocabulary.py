@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404, get_owned_or_404
 from app.database import get_db
 from app.models.course import Course
@@ -12,6 +13,7 @@ from app.models.deck import Deck
 from app.models.enums import KnownVocabularySource
 from app.models.known_vocabulary import KnownVocabularyItem
 from app.models.language import Language
+from app.models.user import User
 from app.models.vocabulary import VocabularyItem
 from app.schemas.card import CardQuickAddResponse, CardRead
 from app.schemas.known_vocabulary import (
@@ -36,11 +38,16 @@ router = APIRouter(prefix="/known-vocabulary", tags=["known-vocabulary"])
 
 @router.get("", response_model=list[KnownVocabularyItemRead])
 async def list_known_vocabulary(
-    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> list[KnownVocabularyItem]:
     result = await db.execute(
         select(KnownVocabularyItem)
-        .where(KnownVocabularyItem.course_id == course_id, KnownVocabularyItem.user_id == user_id)
+        .where(
+            KnownVocabularyItem.course_id == course_id,
+            KnownVocabularyItem.user_id == current_user.id,
+        )
         .order_by(KnownVocabularyItem.target_text)
     )
     return list(result.scalars().all())
@@ -48,7 +55,9 @@ async def list_known_vocabulary(
 
 @router.get("/full-set", response_model=FullKnownWordSetResponse)
 async def get_known_vocabulary_full_set(
-    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> FullKnownWordSetResponse:
     """The complete, normalized known-word set (mastered `Card`s + all
     `KnownVocabularyItem` rows, no sampling) -- see PLAN.md's
@@ -56,13 +65,15 @@ async def get_known_vocabulary_full_set(
     rather than `get_known_words_for_passage`'s prompt-budget-capped
     sample. Sorted for a deterministic response.
     """
-    words = await get_full_known_word_set(db, course_id, user_id)
+    words = await get_full_known_word_set(db, course_id, current_user.id)
     return FullKnownWordSetResponse(words=sorted(words))
 
 
 @router.get("/mastered", response_model=list[VocabularyItemRead])
 async def list_mastered_vocabulary(
-    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> list[VocabularyItem]:
     """Full details (target_text, base_text, part_of_speech) for every word
     mastered via FSRS review -- the "known but never touched the
@@ -70,17 +81,19 @@ async def list_mastered_vocabulary(
     as known, complementing this router's `KnownVocabularyItem`-backed
     endpoints above. See PLAN.md's 2026-08-15 decision.
     """
-    items = await get_mastered_vocabulary_items(db, course_id, user_id)
+    items = await get_mastered_vocabulary_items(db, course_id, current_user.id)
     return sorted(items, key=lambda item: item.target_text)
 
 
 @router.post("", response_model=KnownVocabularyItemRead, status_code=status.HTTP_201_CREATED)
 async def add_known_vocabulary(
-    payload: KnownVocabularyItemCreate, db: AsyncSession = Depends(get_db)
+    payload: KnownVocabularyItemCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> KnownVocabularyItem:
     item = KnownVocabularyItem(
         course_id=payload.course_id,
-        user_id=payload.user_id,
+        user_id=current_user.id,
         target_text=payload.target_text.strip().lower(),
         source=KnownVocabularySource.MANUAL,
     )
@@ -92,7 +105,9 @@ async def add_known_vocabulary(
 
 @router.post("/bulk", response_model=KnownVocabularyBulkCreateResponse)
 async def bulk_add_known_vocabulary(
-    payload: KnownVocabularyBulkCreate, db: AsyncSession = Depends(get_db)
+    payload: KnownVocabularyBulkCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> KnownVocabularyBulkCreateResponse:
     """Saves the placement check's estimated known band(s) in one call.
     `ON CONFLICT DO NOTHING` on `(user_id, course_id, target_text)` rather
@@ -110,7 +125,7 @@ async def bulk_add_known_vocabulary(
             [
                 {
                     "course_id": payload.course_id,
-                    "user_id": payload.user_id,
+                    "user_id": current_user.id,
                     "target_text": word,
                     "source": KnownVocabularySource.PLACEMENT_CHECK.value,
                 }
@@ -128,9 +143,11 @@ async def bulk_add_known_vocabulary(
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_known_vocabulary(
-    item_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
-    item = await get_owned_or_404(db, KnownVocabularyItem, item_id, user_id)
+    item = await get_owned_or_404(db, KnownVocabularyItem, item_id, current_user.id)
     await db.delete(item)
     await db.commit()
 
@@ -139,6 +156,7 @@ async def delete_known_vocabulary(
 async def promote_known_vocabulary(
     item_id: uuid.UUID,
     payload: KnownVocabularyPromote,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> CardQuickAddResponse:
@@ -151,11 +169,11 @@ async def promote_known_vocabulary(
     course reuses it rather than duplicating.
 
     Two separate ownership checks -- the known-vocabulary item and the
-    target deck must both belong to `payload.user_id`, since promotion
+    target deck must both belong to the signed-in user, since promotion
     touches both.
     """
-    item = await get_owned_or_404(db, KnownVocabularyItem, item_id, payload.user_id)
-    deck = await get_owned_or_404(db, Deck, payload.deck_id, payload.user_id)
+    item = await get_owned_or_404(db, KnownVocabularyItem, item_id, current_user.id)
+    deck = await get_owned_or_404(db, Deck, payload.deck_id, current_user.id)
     course = await get_or_404(db, Course, deck.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)

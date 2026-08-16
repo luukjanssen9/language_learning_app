@@ -43,7 +43,7 @@ class FakeLLMProvider:
         return self.canned_response
 
 
-async def _make_course(client: AsyncClient) -> dict:
+async def _make_course(client: AsyncClient, login_as) -> dict:
     suffix = uuid.uuid4().hex[:6]  # Language.code is capped at String(10)
     lang_en = (
         await client.post("/api/languages", json={"code": f"en-{suffix}", "name": "English"})
@@ -68,6 +68,7 @@ async def _make_course(client: AsyncClient) -> dict:
             json={"email": f"roleplay-{suffix}@example.com", "display_name": "Roleplay Test"},
         )
     ).json()
+    await login_as(user["id"])
     return {"course_id": course["id"], "user_id": user["id"]}
 
 
@@ -93,16 +94,16 @@ async def test_list_roleplay_scenarios_returns_seeded_scenarios(
 
 
 async def test_create_conversation_generates_opening_message(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
+    ctx = await _make_course(client, login_as)
     scenario_id = await _make_scenario(db_session)
     fake = FakeLLMProvider(ChatReplyResult(reply_text="¡Bienvenido a mi tienda!", corrections=[]))
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
     resp = await client.post(
         "/api/conversations",
-        json={"user_id": ctx["user_id"], "course_id": ctx["course_id"], "scenario_id": scenario_id},
+        json={"course_id": ctx["course_id"], "scenario_id": scenario_id},
     )
 
     assert resp.status_code == 201, resp.text
@@ -118,20 +119,16 @@ async def test_create_conversation_generates_opening_message(
 
 
 async def test_send_message_persists_corrections_and_replies_in_character(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
+    ctx = await _make_course(client, login_as)
     scenario_id = await _make_scenario(db_session, slug="send-message-scenario")
     start_fake = FakeLLMProvider(ChatReplyResult(reply_text="¿Qué necesitas?", corrections=[]))
     app.dependency_overrides[get_llm_provider] = lambda: start_fake
     conversation = (
         await client.post(
             "/api/conversations",
-            json={
-                "user_id": ctx["user_id"],
-                "course_id": ctx["course_id"],
-                "scenario_id": scenario_id,
-            },
+            json={"course_id": ctx["course_id"], "scenario_id": scenario_id},
         )
     ).json()["conversation"]
 
@@ -151,7 +148,7 @@ async def test_send_message_persists_corrections_and_replies_in_character(
 
     resp = await client.post(
         f"/api/conversations/{conversation['id']}/messages",
-        json={"user_id": ctx["user_id"], "text": "quiero un pan"},
+        json={"text": "quiero un pan"},
     )
 
     assert resp.status_code == 200, resp.text
@@ -175,9 +172,9 @@ async def test_send_message_persists_corrections_and_replies_in_character(
 
 
 async def test_list_conversation_messages_returns_full_transcript_in_order(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
+    ctx = await _make_course(client, login_as)
     scenario_id = await _make_scenario(db_session, slug="transcript-scenario")
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
         ChatReplyResult(reply_text="Hola.", corrections=[])
@@ -185,22 +182,15 @@ async def test_list_conversation_messages_returns_full_transcript_in_order(
     conversation = (
         await client.post(
             "/api/conversations",
-            json={
-                "user_id": ctx["user_id"],
-                "course_id": ctx["course_id"],
-                "scenario_id": scenario_id,
-            },
+            json={"course_id": ctx["course_id"], "scenario_id": scenario_id},
         )
     ).json()["conversation"]
     await client.post(
         f"/api/conversations/{conversation['id']}/messages",
-        json={"user_id": ctx["user_id"], "text": "Hola tambien"},
+        json={"text": "Hola tambien"},
     )
 
-    resp = await client.get(
-        f"/api/conversations/{conversation['id']}/messages",
-        params={"user_id": ctx["user_id"]},
-    )
+    resp = await client.get(f"/api/conversations/{conversation['id']}/messages")
 
     assert resp.status_code == 200
     messages = resp.json()
@@ -208,33 +198,27 @@ async def test_list_conversation_messages_returns_full_transcript_in_order(
 
 
 async def test_list_conversations_scoped_to_user_and_course(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx_a = await _make_course(client)
-    ctx_b = await _make_course(client)
+    ctx_a = await _make_course(client, login_as)
     scenario_id = await _make_scenario(db_session, slug="scoping-scenario")
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
         ChatReplyResult(reply_text="Hola.", corrections=[])
     )
     await client.post(
         "/api/conversations",
-        json={
-            "user_id": ctx_a["user_id"],
-            "course_id": ctx_a["course_id"],
-            "scenario_id": scenario_id,
-        },
-    )
-    await client.post(
-        "/api/conversations",
-        json={
-            "user_id": ctx_b["user_id"],
-            "course_id": ctx_b["course_id"],
-            "scenario_id": scenario_id,
-        },
+        json={"course_id": ctx_a["course_id"], "scenario_id": scenario_id},
     )
 
+    ctx_b = await _make_course(client, login_as)
+    await client.post(
+        "/api/conversations",
+        json={"course_id": ctx_b["course_id"], "scenario_id": scenario_id},
+    )
+
+    await login_as(ctx_a["user_id"])
     resp = await client.get(
-        "/api/conversations", params={"user_id": ctx_a["user_id"], "course_id": ctx_a["course_id"]}
+        "/api/conversations", params={"course_id": ctx_a["course_id"]}
     )
 
     assert resp.status_code == 200
@@ -244,9 +228,9 @@ async def test_list_conversations_scoped_to_user_and_course(
 
 
 async def test_list_someone_elses_conversation_messages_is_403(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
+    ctx = await _make_course(client, login_as)
     other_user_resp = await client.post(
         "/api/users", json={"email": "not-in-convo@example.com", "display_name": "Not In Convo"}
     )
@@ -258,25 +242,19 @@ async def test_list_someone_elses_conversation_messages_is_403(
     conversation = (
         await client.post(
             "/api/conversations",
-            json={
-                "user_id": ctx["user_id"],
-                "course_id": ctx["course_id"],
-                "scenario_id": scenario_id,
-            },
+            json={"course_id": ctx["course_id"], "scenario_id": scenario_id},
         )
     ).json()["conversation"]
 
-    resp = await client.get(
-        f"/api/conversations/{conversation['id']}/messages",
-        params={"user_id": other_user_id},
-    )
+    await login_as(other_user_id)
+    resp = await client.get(f"/api/conversations/{conversation['id']}/messages")
     assert resp.status_code == 403
 
 
 async def test_send_message_to_someone_elses_conversation_is_403(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
+    ctx = await _make_course(client, login_as)
     other_user_resp = await client.post(
         "/api/users", json={"email": "not-a-participant@example.com", "display_name": "Nope"}
     )
@@ -288,16 +266,12 @@ async def test_send_message_to_someone_elses_conversation_is_403(
     conversation = (
         await client.post(
             "/api/conversations",
-            json={
-                "user_id": ctx["user_id"],
-                "course_id": ctx["course_id"],
-                "scenario_id": scenario_id,
-            },
+            json={"course_id": ctx["course_id"], "scenario_id": scenario_id},
         )
     ).json()["conversation"]
 
+    await login_as(other_user_id)
     resp = await client.post(
-        f"/api/conversations/{conversation['id']}/messages",
-        json={"user_id": other_user_id, "text": "hola"},
+        f"/api/conversations/{conversation['id']}/messages", json={"text": "hola"}
     )
     assert resp.status_code == 403

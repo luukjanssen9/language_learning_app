@@ -7,9 +7,9 @@ import type {
 } from "./types";
 
 export const readingPassagesApi = {
-  list: (courseId: string, userId: string) =>
+  list: (courseId: string) =>
     api.get<ReadingPassage[]>(
-      `/reading-passages?${new URLSearchParams({ course_id: courseId, user_id: userId })}`,
+      `/reading-passages?${new URLSearchParams({ course_id: courseId })}`,
     ),
   generate: (payload: ReadingPassageGeneratePayload) =>
     api.post<ReadingPassage>("/reading-passages", payload),

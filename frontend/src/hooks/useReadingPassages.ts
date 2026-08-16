@@ -3,21 +3,20 @@ import { readingPassagesApi } from "@/lib/api/readingPassages";
 import type { ReadingPassageAttemptSubmitPayload } from "@/lib/api/types";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function useReadingPassages(courseId: string, userId: string) {
+export function useReadingPassages(courseId: string) {
   return useQuery({
-    queryKey: queryKeys.readingPassages(courseId, userId),
-    queryFn: () => readingPassagesApi.list(courseId, userId),
+    queryKey: queryKeys.readingPassages(courseId),
+    queryFn: () => readingPassagesApi.list(courseId),
   });
 }
 
 export function useGenerateReadingPassage() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ courseId, userId }: { courseId: string; userId: string }) =>
-      readingPassagesApi.generate({ course_id: courseId, user_id: userId }),
+    mutationFn: (courseId: string) => readingPassagesApi.generate({ course_id: courseId }),
     onSuccess: (data) =>
       queryClient.invalidateQueries({
-        queryKey: queryKeys.readingPassages(data.course_id, data.user_id),
+        queryKey: queryKeys.readingPassages(data.course_id),
       }),
   });
 }

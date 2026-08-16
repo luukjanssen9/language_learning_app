@@ -110,13 +110,7 @@ export interface CourseCreatePayload {
   slug: string;
 }
 
-export interface UserCreatePayload {
-  email: string;
-  display_name: string;
-}
-
 export interface DeckCreatePayload {
-  user_id: string;
   course_id: string;
   name: string;
   description?: string | null;
@@ -219,7 +213,6 @@ export interface UserExerciseAttempt {
 }
 
 export interface UserExerciseAttemptSubmitPayload {
-  user_id: string;
   submitted_answer: Record<string, unknown>;
 }
 
@@ -301,7 +294,6 @@ export interface JournalEntry {
 }
 
 export interface JournalEntrySubmitPayload {
-  user_id: string;
   course_id: string;
   text: string;
 }
@@ -331,11 +323,9 @@ export interface ReadingPassage {
 
 export interface ReadingPassageGeneratePayload {
   course_id: string;
-  user_id: string;
 }
 
 export interface ReadingPassageAttemptSubmitPayload {
-  user_id: string;
   question_index: number;
   submitted_answer: string;
 }
@@ -364,13 +354,11 @@ export interface KnownVocabularyItem {
 
 export interface KnownVocabularyItemCreatePayload {
   course_id: string;
-  user_id: string;
   target_text: string;
 }
 
 export interface KnownVocabularyBulkCreatePayload {
   course_id: string;
-  user_id: string;
   target_texts: string[];
 }
 
@@ -400,7 +388,6 @@ export interface PasteInAnalyzeResponse {
 
 export interface PasteInAnalyzePayload {
   course_id: string;
-  user_id: string;
   text: string;
 }
 
@@ -474,7 +461,6 @@ export interface Conversation {
 }
 
 export interface ConversationStartPayload {
-  user_id: string;
   course_id: string;
   scenario_id: string;
 }

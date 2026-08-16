@@ -47,7 +47,7 @@ def _canned_passage() -> ReadingPassageResult:
     )
 
 
-async def _make_course(client: AsyncClient) -> dict:
+async def _make_course(client: AsyncClient, login_as) -> dict:
     suffix = uuid.uuid4().hex[:6]
     lang_en = (
         await client.post("/api/languages", json={"code": f"en-{suffix}", "name": "English"})
@@ -72,19 +72,17 @@ async def _make_course(client: AsyncClient) -> dict:
             json={"email": f"passages-{suffix}@example.com", "display_name": "Passages Test"},
         )
     ).json()
+    await login_as(user["id"])
     return {**course, "_user_id": user["id"]}
 
 
 async def test_create_reading_passage_persists_and_excludes_reference_answer(
-    client: AsyncClient,
+    client: AsyncClient, login_as
 ):
-    course = await _make_course(client)
+    course = await _make_course(client, login_as)
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(_canned_passage())
 
-    resp = await client.post(
-        "/api/reading-passages",
-        json={"course_id": course["id"], "user_id": course["_user_id"]},
-    )
+    resp = await client.post("/api/reading-passages", json={"course_id": course["id"]})
 
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -97,60 +95,47 @@ async def test_create_reading_passage_persists_and_excludes_reference_answer(
     assert "reference_answer" not in body["questions"][0]
 
 
-async def test_list_reading_passages_is_course_scoped(client: AsyncClient):
-    course_a = await _make_course(client)
-    course_b = await _make_course(client)
+async def test_list_reading_passages_is_course_scoped(client: AsyncClient, login_as):
+    course_a = await _make_course(client, login_as)
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(_canned_passage())
+    await client.post("/api/reading-passages", json={"course_id": course_a["id"]})
 
-    await client.post(
-        "/api/reading-passages",
-        json={"course_id": course_a["id"], "user_id": course_a["_user_id"]},
-    )
-    await client.post(
-        "/api/reading-passages",
-        json={"course_id": course_b["id"], "user_id": course_b["_user_id"]},
-    )
+    course_b = await _make_course(client, login_as)
+    await client.post("/api/reading-passages", json={"course_id": course_b["id"]})
 
-    resp = await client.get(
-        "/api/reading-passages",
-        params={"course_id": course_a["id"], "user_id": course_a["_user_id"]},
-    )
+    await login_as(course_a["_user_id"])
+    resp = await client.get("/api/reading-passages", params={"course_id": course_a["id"]})
 
     assert resp.status_code == 200
     body = resp.json()
     assert len(body) == 1
 
 
-async def test_list_reading_passages_excludes_other_users_in_same_course(client: AsyncClient):
-    course = await _make_course(client)
+async def test_list_reading_passages_excludes_other_users_in_same_course(
+    client: AsyncClient, login_as
+):
+    course = await _make_course(client, login_as)
+    app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(_canned_passage())
+    await client.post("/api/reading-passages", json={"course_id": course["id"]})
+
     other_user = (
         await client.post(
             "/api/users",
             json={"email": f"other-{uuid.uuid4().hex[:6]}@example.com", "display_name": "Other"},
         )
     ).json()
-    app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(_canned_passage())
+    await login_as(other_user["id"])
+    await client.post("/api/reading-passages", json={"course_id": course["id"]})
 
-    await client.post(
-        "/api/reading-passages",
-        json={"course_id": course["id"], "user_id": course["_user_id"]},
-    )
-    await client.post(
-        "/api/reading-passages",
-        json={"course_id": course["id"], "user_id": other_user["id"]},
-    )
-
-    resp = await client.get(
-        "/api/reading-passages",
-        params={"course_id": course["id"], "user_id": course["_user_id"]},
-    )
+    await login_as(course["_user_id"])
+    resp = await client.get("/api/reading-passages", params={"course_id": course["id"]})
 
     assert resp.status_code == 200
     assert len(resp.json()) == 1
 
 
 async def test_list_reading_passages_orders_most_recent_first(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
     # Inserted directly via db_session with explicit, distinct timestamps
     # rather than through back-to-back API calls: Postgres's now() is
@@ -158,7 +143,7 @@ async def test_list_reading_passages_orders_most_recent_first(
     # one transaction (see conftest.py), so two rows created via the API
     # in the same test can get identical created_at values -- see PLAN.md's
     # 2026-08-14 "Journal correction" entry for the same issue hit there.
-    course = await _make_course(client)
+    course = await _make_course(client, login_as)
     now = datetime.now(UTC)
     older = ReadingPassage(
         course_id=uuid.UUID(course["id"]),
@@ -181,24 +166,18 @@ async def test_list_reading_passages_orders_most_recent_first(
     db_session.add_all([older, newer])
     await db_session.flush()
 
-    resp = await client.get(
-        "/api/reading-passages",
-        params={"course_id": course["id"], "user_id": course["_user_id"]},
-    )
+    resp = await client.get("/api/reading-passages", params={"course_id": course["id"]})
 
     assert resp.status_code == 200
     body = resp.json()
     assert [p["target_text"] for p in body] == ["newer", "older"]
 
 
-async def test_attempt_grades_and_persists(client: AsyncClient):
-    course = await _make_course(client)
+async def test_attempt_grades_and_persists(client: AsyncClient, login_as):
+    course = await _make_course(client, login_as)
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(_canned_passage())
     passage = (
-        await client.post(
-            "/api/reading-passages",
-            json={"course_id": course["id"], "user_id": course["_user_id"]},
-        )
+        await client.post("/api/reading-passages", json={"course_id": course["id"]})
     ).json()
 
     fake_grade = FakeLLMProvider(ComprehensionGradeResult(is_correct=True, feedback="Correct!"))
@@ -206,11 +185,7 @@ async def test_attempt_grades_and_persists(client: AsyncClient):
 
     resp = await client.post(
         f"/api/reading-passages/{passage['id']}/attempt",
-        json={
-            "user_id": course["_user_id"],
-            "question_index": 0,
-            "submitted_answer": "Al mercado",
-        },
+        json={"question_index": 0, "submitted_answer": "Al mercado"},
     )
 
     assert resp.status_code == 200, resp.text
@@ -221,19 +196,16 @@ async def test_attempt_grades_and_persists(client: AsyncClient):
     assert fake_grade.call_count == 1
 
 
-async def test_attempt_with_out_of_range_question_index_is_400(client: AsyncClient):
-    course = await _make_course(client)
+async def test_attempt_with_out_of_range_question_index_is_400(client: AsyncClient, login_as):
+    course = await _make_course(client, login_as)
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(_canned_passage())
     passage = (
-        await client.post(
-            "/api/reading-passages",
-            json={"course_id": course["id"], "user_id": course["_user_id"]},
-        )
+        await client.post("/api/reading-passages", json={"course_id": course["id"]})
     ).json()
 
     resp = await client.post(
         f"/api/reading-passages/{passage['id']}/attempt",
-        json={"user_id": course["_user_id"], "question_index": 99, "submitted_answer": "x"},
+        json={"question_index": 99, "submitted_answer": "x"},
     )
 
     assert resp.status_code == 400

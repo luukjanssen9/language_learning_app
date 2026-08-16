@@ -2133,10 +2133,114 @@ roleplay conversation) loads cleanly with correctly-`user_id`-scoped
 requests and zero console errors. Full verification: 216/216 backend
 tests pass, `ruff` clean; frontend 92/92 tests, `tsc`, `eslint` all clean.
 
+**2026-08-16 — Phase 8 auth Slice 4 (real Google sign-in everywhere,
+session-derived identity), complete and verified end-to-end. Phase 8 is
+now fully done.** Closes both remaining gaps at once: `BootstrapProvider`
+never actually signed anyone in, and every route still trusted whatever
+`user_id` the client claimed. Confirmed the login-UX question with the
+user first (AskUserQuestion): an **in-place login gate** — one provider
+wraps the app in `layout.tsx`, and a signed-out visitor sees the Google
+sign-in screen rendered directly in place of `children` on a 401 from
+`GET /auth/me`, same URL, no redirect, no Next.js middleware — rather
+than a redirect to a separate route. The standalone `/login` page
+(Slice 1's proof-of-mechanism) was deleted, its JSX moved into the new
+`AuthProvider`.
+
+**Backend**: every route that used to take `user_id` as a query param or
+request-body field now takes `current_user: User = Depends(get_current_user)`
+instead — genuinely simpler than Slice 3's version, since ownership checks
+(`get_owned_or_404`, `vocabulary.py`'s `_check_read_access`/
+`_check_write_access`) compare against `current_user.id` with no separate
+param to thread through at all. Every `*Create`/`*Submit`/`*Generate`/
+`*Start`/`*Promote`/`*Analyze` input schema had its `user_id` field
+removed (~20 occurrences); `*Read` output schemas kept `user_id`
+unchanged. `GET /user-progress` dropped its optional `user_id` filter
+(Slice 3 had already flagged the inconsistency) — always scoped to self
+now, no "list everyone's" mode. `users.py`: `GET/PATCH/DELETE /users/{id}`
+locked to self-only; `GET /users` (list-all, a real privacy leak — it
+returned every user's email) removed entirely now that its only caller
+(`bootstrap.ts`) is gone too; `POST /users` stays, unauthenticated but
+harmless.
+
+**Backend tests**: reused this project's established swappable-`Depends`
+testing convention (`get_llm_provider`/`get_tts_client`/
+`get_google_token_verifier` were already overridden per-test the same
+way) — a new `login_as` fixture (`conftest.py`) overrides
+`get_current_user` to return a specific `User` row, callable again
+mid-test to switch identity for cross-user 403 cases. Every
+`params={"user_id": ...}`/`json={"user_id": ...}` call site across the
+suite was removed as part of the same pass — the single largest
+mechanical change in the slice by file count (~14 test files), but
+uniform throughout. One real ordering subtlety learned by trial and
+error: since each resource-creation helper (`_make_deck`, `_make_course`,
+etc.) now logs in as the user it just created, a cross-user test must
+finish everything it needs to do as user A *before* creating user B
+(otherwise A's setup silently executes as B), and must explicitly
+`login_as` back to A afterward if a final assertion needs to run as A.
+216/216 backend tests pass, `ruff` clean.
+
+**Frontend**: new `AuthProvider` (`providers/AuthProvider.tsx`) wraps
+`layout.tsx` ahead of `BootstrapProvider`; `logout()` clears the entire
+TanStack Query cache (not just auth) before refetching `/auth/me`, so a
+real user switch can't show the previous user's stale data even for a
+moment — safe to do unconditionally since the gate immediately unmounts
+the whole app tree on the resulting 401 anyway. `bootstrap.ts` dropped
+its user-creation half entirely (`usersApi.list/create`,
+`DEFAULT_USER_EMAIL/DISPLAY_NAME`) along with the now-dead
+`lib/api/users.ts`; `BootstrapResult` dropped `userId`, keeping
+`courseId`/`baseLanguageId`/`targetLanguageId`. All ~24 hooks and their
+`lib/api/*.ts` counterparts that gained a `userId` parameter in Slices
+2-3 lost it again, along with the `userId` segment `queryKeys.ts` added
+in Slice 2 (no longer needed for cache-scoping now that `logout()` clears
+the whole cache on a real identity switch). Every page/component call
+site that threaded `userId` through stopped passing it — almost entirely
+deletions, not additions. `Nav.tsx` gained a "Signed in as {name} · Log
+out" affordance via the new `useAuthContext()`, the first real way to
+sign in/out from the UI rather than only provable via a standalone test
+page. 92/92 frontend tests pass, `tsc --noEmit` and `eslint` both clean.
+
+**Live verification, and a real dev-environment bug found only by doing
+it**: both the backend and frontend dev servers turned out to be running
+*stale* processes — the backend was an orphaned `uvicorn --reload`
+*worker* subprocess (Windows doesn't cascade killing the parent
+reloader to its child worker, so the worker kept serving pre-Slice-4
+routes off its old in-memory import even after the reloader "parent" was
+killed) still listening on port 8000 from hours earlier, and the frontend
+dev server predated all of this slice's provider-tree changes to
+`layout.tsx`. Neither is a Slice 4 code bug, but both would have silently
+invalidated live testing if not caught — confirmed via a direct `curl
+/api/decks`, which returned the *old* "user_id required" 422 shape
+against code that no longer has a `user_id` param at all. Killed both
+worker and reloader PIDs, restarted fresh from `backend/.venv` and `npm
+run dev`. With genuinely fresh servers: dashboard, known-vocabulary, and
+journal pages all load correctly with session-derived data and zero
+console errors; clicking "Log out" clears the session and the in-place
+gate renders instantly at the *same URL* (`/journal`, not a redirect) —
+confirming the in-place-gate design actually works as designed, not just
+in isolation. Signing back in via the real Google account picker wasn't
+completable through browser automation (a real third-party OAuth
+popup/account-selection flow, appropriately outside what should be
+automated) — handed off to the user to confirm the final leg (same
+account's data still intact after a real round trip).
+
 ## Current Status
 
 **As of 2026-08-16:**
 
+- Done: **Phase 8 — real multi-user auth, complete end-to-end (Slices
+  1-4).** Slice 4 (real Google sign-in everywhere, session-derived
+  identity) closes the phase: an in-place login gate replaces
+  `BootstrapProvider`'s old silent user-creation, and every route derives
+  "who's asking" from the verified session cookie instead of a
+  client-supplied `user_id`. 216/216 backend tests, 92/92 frontend tests,
+  `ruff`/`tsc`/`eslint` all clean; live-verified (dashboard/known-
+  vocabulary/journal load correctly, logout → in-place gate confirmed at
+  the same URL with no stale-data flash) — except the final "sign back in
+  with a real Google account" leg, left for the user to confirm directly
+  rather than automating a real OAuth popup. See the decision log entry
+  just above for the full breakdown, including a real dev-environment bug
+  (an orphaned `uvicorn --reload` worker serving stale pre-Slice-4 routes)
+  found only by doing live verification.
 - Done: **Phase 8 — real multi-user auth, Slice 3 (ownership checks on
   personal data), complete and verified end-to-end** — every route that
   reads or mutates a specific user's resource (decks, cards, known-
@@ -2360,22 +2464,26 @@ tests pass, `ruff` clean; frontend 92/92 tests, `tsc`, `eslint` all clean.
     at exactly the expected connection point, confirming the fixtures and
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
-- Blocked: nothing.
-- Next: Phase 8 auth Slice 4 — full frontend integration: replace
-  `BootstrapProvider`'s silent create/reuse with real Google sign-in
-  (wire the existing `/login` page in, redirect unauthenticated users
-  there), then flip every route from client-supplied `user_id` to
-  session-derived identity (`get_current_user`, already built in Slice 1,
-  still unused). Checkpoint with the user first per this project's
-  per-slice cadence, as always.
-- Open questions: none blocking — the three big auth-architecture
-  decisions (Course stays shared, Google-only, reassign legacy data) are
-  already resolved, and Slice 3's own scoping question (ownership checks
-  now vs. full session-derived identity now) was resolved with the user
-  before starting; execution is just working through Slice 4 now.
+- Blocked: nothing — one manual follow-up left for the user: sign back in
+  via the real Google account picker (see the decision log entry just
+  above) to confirm the same account's data survives a real logout/login
+  round trip; everything automatable has been verified.
+- Next: Phase 8 is fully done. Next phase per the roadmap is whatever the
+  user picks up next — no further auth slices planned.
+- Open questions: none.
 
 ## Known Issues / Follow-ups
 
+- On Windows, killing a `uvicorn --reload` process by its listed PID can
+  leave an orphaned worker subprocess still bound to the port and still
+  serving old code — the reloader (parent) and the actual server (child
+  worker) are separate processes, and `Stop-Process` on the parent alone
+  doesn't cascade to the child. Symptom: the backend responds fine, but to
+  routes/behavior from before the last edit, even though the file on disk
+  is correct. Found live during Phase 8 Slice 4 verification. Fix: check
+  `netstat -ano` for the actual PID bound to the port (it may differ from
+  whichever PID you tried to kill) and stop that one too before
+  restarting.
 - `SECRET_KEY`'s dev default (`dev-secret-change-me`, 20 bytes) signs the
   new session JWT (Phase 8 slice 1) and is now genuinely security-relevant,
   not just a placeholder — PyJWT already warns on it

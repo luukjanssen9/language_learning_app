@@ -3,7 +3,7 @@ import uuid
 from httpx import AsyncClient
 
 
-async def test_full_course_deck_card_flow(client: AsyncClient):
+async def test_full_course_deck_card_flow(client: AsyncClient, login_as):
     """Exercises the full FK graph: Language -> Course -> Deck ->
     VocabularyItem -> Card, plus a Skill/LessonExercise off the same course.
     """
@@ -32,10 +32,11 @@ async def test_full_course_deck_card_flow(client: AsyncClient):
         )
     ).json()
 
+    await login_as(user["id"])
     deck = (
         await client.post(
             "/api/decks",
-            json={"user_id": user["id"], "course_id": course["id"], "name": "Test deck"},
+            json={"course_id": course["id"], "name": "Test deck"},
         )
     ).json()
 
@@ -44,7 +45,6 @@ async def test_full_course_deck_card_flow(client: AsyncClient):
             "/api/vocabulary-items",
             json={
                 "course_id": course["id"],
-                "user_id": user["id"],
                 "target_text": "perro",
                 "base_text": "dog",
             },
@@ -53,7 +53,6 @@ async def test_full_course_deck_card_flow(client: AsyncClient):
 
     card_resp = await client.post(
         "/api/cards",
-        params={"user_id": user["id"]},
         json={"deck_id": deck["id"], "vocabulary_item_id": vocab["id"]},
     )
     assert card_resp.status_code == 201

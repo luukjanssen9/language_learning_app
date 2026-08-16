@@ -19,7 +19,9 @@ DUAL_DIRECTION_CONFIG = {
 }
 
 
-async def _make_deck(client: AsyncClient, *, target_grammar_config: dict | None = None) -> dict:
+async def _make_deck(
+    client: AsyncClient, login_as, *, target_grammar_config: dict | None = None
+) -> dict:
     suffix = uuid.uuid4().hex[:6]
     lang_en = (
         await client.post("/api/languages", json={"code": f"en-{suffix}", "name": "English"})
@@ -51,16 +53,16 @@ async def _make_deck(client: AsyncClient, *, target_grammar_config: dict | None 
             json={"email": f"quickadd-{suffix}@example.com", "display_name": "Quick Add Test"},
         )
     ).json()
+    await login_as(user["id"])
     deck = (
         await client.post(
-            "/api/decks",
-            json={"user_id": user["id"], "course_id": course["id"], "name": "Quick add deck"},
+            "/api/decks", json={"course_id": course["id"], "name": "Quick add deck"}
         )
     ).json()
     return deck
 
 
-async def _quick_add(client: AsyncClient, deck_id: str, user_id: str, **overrides) -> dict:
+async def _quick_add(client: AsyncClient, deck_id: str, **overrides) -> dict:
     payload = {
         "deck_id": deck_id,
         "target_text": "你好",
@@ -72,15 +74,17 @@ async def _quick_add(client: AsyncClient, deck_id: str, user_id: str, **override
         "attributes": {"pinyin": "nǐ hǎo"},
         **overrides,
     }
-    resp = await client.post("/api/cards/quick-add", params={"user_id": user_id}, json=payload)
+    resp = await client.post("/api/cards/quick-add", json=payload)
     assert resp.status_code == 201, resp.text
     return resp.json()
 
 
-async def test_quick_add_single_direction_language_creates_one_card(client: AsyncClient):
-    deck = await _make_deck(client)  # no vocab_deck config -> single-direction
+async def test_quick_add_single_direction_language_creates_one_card(
+    client: AsyncClient, login_as
+):
+    deck = await _make_deck(client, login_as)  # no vocab_deck config -> single-direction
 
-    body = await _quick_add(client, deck["id"], deck["user_id"])
+    body = await _quick_add(client, deck["id"])
 
     assert body["vocabulary_item"]["target_text"] == "你好"
     assert body["vocabulary_item"]["source"] == "Podcast: ChinesePod - Greetings"
@@ -94,11 +98,11 @@ async def test_quick_add_single_direction_language_creates_one_card(client: Asyn
 
 
 async def test_quick_add_dual_direction_language_creates_recognition_and_suspended_production(
-    client: AsyncClient,
+    client: AsyncClient, login_as
 ):
-    deck = await _make_deck(client, target_grammar_config=DUAL_DIRECTION_CONFIG)
+    deck = await _make_deck(client, login_as, target_grammar_config=DUAL_DIRECTION_CONFIG)
 
-    body = await _quick_add(client, deck["id"], deck["user_id"])
+    body = await _quick_add(client, deck["id"])
 
     assert len(body["cards"]) == 2
     recognition, production = body["cards"]
@@ -108,25 +112,21 @@ async def test_quick_add_dual_direction_language_creates_recognition_and_suspend
     assert production["state"] == "suspended"
 
 
-async def test_reviewing_a_suspended_card_is_rejected(client: AsyncClient):
-    deck = await _make_deck(client, target_grammar_config=DUAL_DIRECTION_CONFIG)
-    body = await _quick_add(client, deck["id"], deck["user_id"])
+async def test_reviewing_a_suspended_card_is_rejected(client: AsyncClient, login_as):
+    deck = await _make_deck(client, login_as, target_grammar_config=DUAL_DIRECTION_CONFIG)
+    body = await _quick_add(client, deck["id"])
     _recognition, production = body["cards"]
 
-    resp = await client.post(
-        f"/api/cards/{production['id']}/review",
-        params={"user_id": deck["user_id"]},
-        json={"rating": "good"},
-    )
+    resp = await client.post(f"/api/cards/{production['id']}/review", json={"rating": "good"})
 
     assert resp.status_code == 400
 
 
 async def test_production_card_unlocks_after_enough_successful_recognition_reviews(
-    client: AsyncClient,
+    client: AsyncClient, login_as
 ):
-    deck = await _make_deck(client, target_grammar_config=DUAL_DIRECTION_CONFIG)
-    body = await _quick_add(client, deck["id"], deck["user_id"])
+    deck = await _make_deck(client, login_as, target_grammar_config=DUAL_DIRECTION_CONFIG)
+    body = await _quick_add(client, deck["id"])
     recognition, production = body["cards"]
 
     # DUAL_DIRECTION_CONFIG requires 2 successful reviews (min_days is
@@ -134,39 +134,31 @@ async def test_production_card_unlocks_after_enough_successful_recognition_revie
     # unlock it here).
     for _ in range(2):
         resp = await client.post(
-            f"/api/cards/{recognition['id']}/review",
-            params={"user_id": deck["user_id"]},
-            json={"rating": "good"},
+            f"/api/cards/{recognition['id']}/review", json={"rating": "good"}
         )
         assert resp.status_code == 200
 
-    due_resp = await client.get(
-        "/api/cards/due", params={"deck_id": deck["id"], "user_id": deck["user_id"]}
-    )
+    due_resp = await client.get("/api/cards/due", params={"deck_id": deck["id"]})
     ids_and_states = {c["id"]: c["state"] for c in due_resp.json()}
     assert ids_and_states.get(production["id"]) == "new"
 
 
-async def test_production_card_stays_suspended_before_gate_is_met(client: AsyncClient):
-    deck = await _make_deck(client, target_grammar_config=DUAL_DIRECTION_CONFIG)
-    body = await _quick_add(client, deck["id"], deck["user_id"])
+async def test_production_card_stays_suspended_before_gate_is_met(
+    client: AsyncClient, login_as
+):
+    deck = await _make_deck(client, login_as, target_grammar_config=DUAL_DIRECTION_CONFIG)
+    body = await _quick_add(client, deck["id"])
     recognition, production = body["cards"]
 
     # Only one successful review -- below the config's threshold of 2.
-    await client.post(
-        f"/api/cards/{recognition['id']}/review",
-        params={"user_id": deck["user_id"]},
-        json={"rating": "good"},
-    )
+    await client.post(f"/api/cards/{recognition['id']}/review", json={"rating": "good"})
 
-    due_resp = await client.get(
-        "/api/cards/due", params={"deck_id": deck["id"], "user_id": deck["user_id"]}
-    )
+    due_resp = await client.get("/api/cards/due", params={"deck_id": deck["id"]})
     ids = [c["id"] for c in due_resp.json()]
     assert production["id"] not in ids
 
 
-async def test_production_card_unlocks_via_day_based_gate(client: AsyncClient):
+async def test_production_card_unlocks_via_day_based_gate(client: AsyncClient, login_as):
     day_gated_config = {
         "vocab_deck": {
             "dual_direction_cards": True,
@@ -176,111 +168,97 @@ async def test_production_card_unlocks_via_day_based_gate(client: AsyncClient):
             },
         }
     }
-    deck = await _make_deck(client, target_grammar_config=day_gated_config)
-    body = await _quick_add(client, deck["id"], deck["user_id"])
+    deck = await _make_deck(client, login_as, target_grammar_config=day_gated_config)
+    body = await _quick_add(client, deck["id"])
     _recognition, production = body["cards"]
 
     # Zero reviews -- only the "0 days since the note was added" path can
     # unlock it, and it's already true the instant the note exists.
-    due_resp = await client.get(
-        "/api/cards/due", params={"deck_id": deck["id"], "user_id": deck["user_id"]}
-    )
+    due_resp = await client.get("/api/cards/due", params={"deck_id": deck["id"]})
     ids_and_states = {c["id"]: c["state"] for c in due_resp.json()}
     assert ids_and_states.get(production["id"]) == "new"
 
 
-async def test_daily_new_card_cap_limits_new_cards_across_requests(client: AsyncClient):
-    deck = await _make_deck(client)
-    resp = await client.patch(
-        f"/api/decks/{deck['id']}",
-        params={"user_id": deck["user_id"]},
-        json={"daily_new_card_cap": 1},
-    )
+async def test_daily_new_card_cap_limits_new_cards_across_requests(
+    client: AsyncClient, login_as
+):
+    deck = await _make_deck(client, login_as)
+    resp = await client.patch(f"/api/decks/{deck['id']}", json={"daily_new_card_cap": 1})
     assert resp.status_code == 200
 
-    first = await _quick_add(
-        client, deck["id"], deck["user_id"], target_text="第一", base_text="first"
-    )
-    await _quick_add(client, deck["id"], deck["user_id"], target_text="第二", base_text="second")
+    first = await _quick_add(client, deck["id"], target_text="第一", base_text="first")
+    await _quick_add(client, deck["id"], target_text="第二", base_text="second")
 
     # No explicit new_limit override -- exercises the deck's own
     # configured cap, not a request-level parameter.
     await client.post(
-        f"/api/cards/{first['cards'][0]['id']}/review",
-        params={"user_id": deck["user_id"]},
-        json={"rating": "good"},
+        f"/api/cards/{first['cards'][0]['id']}/review", json={"rating": "good"}
     )
 
-    due_resp = await client.get(
-        "/api/cards/due", params={"deck_id": deck["id"], "user_id": deck["user_id"]}
-    )
+    due_resp = await client.get("/api/cards/due", params={"deck_id": deck["id"]})
     new_cards = [c for c in due_resp.json() if c["state"] == "new"]
     assert new_cards == []
 
 
-async def test_quick_add_is_idempotent_on_matching_target_and_base_text(client: AsyncClient):
-    deck = await _make_deck(client)
+async def test_quick_add_is_idempotent_on_matching_target_and_base_text(
+    client: AsyncClient, login_as
+):
+    deck = await _make_deck(client, login_as)
 
-    first = await _quick_add(client, deck["id"], deck["user_id"])
+    first = await _quick_add(client, deck["id"])
     # Different casing/accents on both fields -- still the same word.
-    second = await _quick_add(
-        client, deck["id"], deck["user_id"], target_text="你好", base_text="HELLO"
-    )
+    second = await _quick_add(client, deck["id"], target_text="你好", base_text="HELLO")
 
     assert first["vocabulary_item"]["id"] == second["vocabulary_item"]["id"]
     assert first["cards"][0]["id"] == second["cards"][0]["id"]
 
     list_resp = await client.get(
-        "/api/vocabulary-items",
-        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
+        "/api/vocabulary-items", params={"course_id": deck["course_id"]}
     )
     assert len(list_resp.json()) == 1
 
 
-async def test_quick_add_keeps_distinct_senses_of_a_homonym_separate(client: AsyncClient):
+async def test_quick_add_keeps_distinct_senses_of_a_homonym_separate(
+    client: AsyncClient, login_as
+):
     # Same target_text, genuinely different meanings -- e.g. Dutch "bank"
     # -> bank/couch/bench. Differing on base_text must NOT be merged.
-    deck = await _make_deck(client)
+    deck = await _make_deck(client, login_as)
 
     bank_the_institution = await _quick_add(
-        client, deck["id"], deck["user_id"], target_text="bank", base_text="the (financial) bank"
+        client, deck["id"], target_text="bank", base_text="the (financial) bank"
     )
-    bank_the_couch = await _quick_add(
-        client, deck["id"], deck["user_id"], target_text="bank", base_text="couch"
-    )
+    bank_the_couch = await _quick_add(client, deck["id"], target_text="bank", base_text="couch")
 
     assert bank_the_institution["vocabulary_item"]["id"] != bank_the_couch["vocabulary_item"]["id"]
 
     list_resp = await client.get(
-        "/api/vocabulary-items",
-        params={"course_id": deck["course_id"], "user_id": deck["user_id"]},
+        "/api/vocabulary-items", params={"course_id": deck["course_id"]}
     )
     assert len(list_resp.json()) == 2
 
 
 async def test_quick_add_reuses_note_but_adds_missing_card_in_a_different_deck(
-    client: AsyncClient,
+    client: AsyncClient, login_as
 ):
-    deck = await _make_deck(client)
-    first = await _quick_add(client, deck["id"], deck["user_id"])
+    deck = await _make_deck(client, login_as)
+    first = await _quick_add(client, deck["id"])
 
     # A second deck for the SAME user in the same course (e.g. a separate
     # "Podcast vocab" deck) -- note-reuse is scoped by user, not by deck
     # (VocabularyItem.user_id), so this must stay same-user to still
     # exercise cross-deck reuse; a different user's deck would instead
-    # correctly create its own separate note (see note_cards.py).
+    # correctly create its own separate note (see note_cards.py). Still
+    # logged in as the same user from `_make_deck` above, so no re-login
+    # needed.
     second_deck = (
         await client.post(
             "/api/decks",
-            json={
-                "user_id": deck["user_id"],
-                "course_id": deck["course_id"],
-                "name": "Second deck",
-            },
+            json={"course_id": deck["course_id"], "name": "Second deck"},
         )
     ).json()
 
-    second = await _quick_add(client, second_deck["id"], deck["user_id"])
+    second = await _quick_add(client, second_deck["id"])
 
     # Same note reused across decks, but each deck gets its own card(s)
     # for it.
@@ -290,7 +268,7 @@ async def test_quick_add_reuses_note_but_adds_missing_card_in_a_different_deck(
 
 
 async def test_quick_add_does_not_reuse_another_users_note_in_the_same_course(
-    client: AsyncClient,
+    client: AsyncClient, login_as
 ):
     """Unlike the same-user cross-deck case above, a different user's
     quick-add for the identical word must create its own separate note --
@@ -298,71 +276,61 @@ async def test_quick_add_does_not_reuse_another_users_note_in_the_same_course(
     vocabulary is never silently shared across users, even within one
     course.
     """
-    deck = await _make_deck(client)
-    first = await _quick_add(client, deck["id"], deck["user_id"])
+    deck = await _make_deck(client, login_as)
+    first = await _quick_add(client, deck["id"])
 
     other_user_resp = await client.post(
         "/api/users", json={"email": "other-user@example.com", "display_name": "Other User"}
     )
     other_user_id = other_user_resp.json()["id"]
+    await login_as(other_user_id)
     other_deck = (
         await client.post(
             "/api/decks",
-            json={
-                "user_id": other_user_id,
-                "course_id": deck["course_id"],
-                "name": "Other user's deck",
-            },
+            json={"course_id": deck["course_id"], "name": "Other user's deck"},
         )
     ).json()
 
-    second = await _quick_add(client, other_deck["id"], other_user_id)
+    second = await _quick_add(client, other_deck["id"])
 
     assert first["vocabulary_item"]["id"] != second["vocabulary_item"]["id"]
     assert second["vocabulary_item"]["user_id"] == other_user_id
 
 
-async def test_quick_add_into_another_users_deck_is_403(client: AsyncClient):
-    deck = await _make_deck(client)
+async def test_quick_add_into_another_users_deck_is_403(client: AsyncClient, login_as):
+    deck = await _make_deck(client, login_as)
     other_user_resp = await client.post(
         "/api/users", json={"email": "not-the-owner@example.com", "display_name": "Not Owner"}
     )
     other_user_id = other_user_resp.json()["id"]
+    await login_as(other_user_id)
 
     resp = await client.post(
         "/api/cards/quick-add",
-        params={"user_id": other_user_id},
         json={"deck_id": deck["id"], "target_text": "你好", "base_text": "hello"},
     )
 
     assert resp.status_code == 403
 
 
-async def test_daily_new_card_cap_does_not_count_yesterdays_reviews(client: AsyncClient):
-    deck = await _make_deck(client)
-    resp = await client.patch(
-        f"/api/decks/{deck['id']}",
-        params={"user_id": deck["user_id"]},
-        json={"daily_new_card_cap": 1},
-    )
+async def test_daily_new_card_cap_does_not_count_yesterdays_reviews(
+    client: AsyncClient, login_as
+):
+    deck = await _make_deck(client, login_as)
+    resp = await client.patch(f"/api/decks/{deck['id']}", json={"daily_new_card_cap": 1})
     assert resp.status_code == 200
 
     yesterday_card = await _quick_add(
-        client, deck["id"], deck["user_id"], target_text="昨天", base_text="yesterday"
+        client, deck["id"], target_text="昨天", base_text="yesterday"
     )
-    today_card = await _quick_add(
-        client, deck["id"], deck["user_id"], target_text="今天", base_text="today"
-    )
+    today_card = await _quick_add(client, deck["id"], target_text="今天", base_text="today")
 
     yesterday = datetime.now(UTC) - timedelta(days=1)
     await client.post(
         f"/api/cards/{yesterday_card['cards'][0]['id']}/review",
-        params={"user_id": deck["user_id"]},
         json={"rating": "good", "reviewed_at": yesterday.isoformat()},
     )
 
-    due_resp = await client.get(
-        "/api/cards/due", params={"deck_id": deck["id"], "user_id": deck["user_id"]}
-    )
+    due_resp = await client.get("/api/cards/due", params={"deck_id": deck["id"]})
     new_ids = [c["id"] for c in due_resp.json() if c["state"] == "new"]
     assert new_ids == [today_card["cards"][0]["id"]]

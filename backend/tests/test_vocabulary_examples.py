@@ -30,7 +30,7 @@ class FakeLLMProvider:
 
 
 async def _make_vocabulary_item(
-    client: AsyncClient, *, target_name: str = "Spanish", target_code_prefix: str = "es"
+    client: AsyncClient, login_as, *, target_name: str = "Spanish", target_code_prefix: str = "es"
 ) -> dict:
     suffix = uuid.uuid4().hex[:6]  # Language.code is capped at String(10)
     lang_en = (
@@ -58,12 +58,12 @@ async def _make_vocabulary_item(
             json={"email": f"vocabexamples-{suffix}@example.com", "display_name": "Examples Test"},
         )
     ).json()
+    await login_as(user["id"])
     item = (
         await client.post(
             "/api/vocabulary-items",
             json={
                 "course_id": course["id"],
-                "user_id": user["id"],
                 "target_text": "hola" if target_name == "Spanish" else "hallo",
                 "base_text": "hello",
                 "part_of_speech": "interjection",
@@ -73,8 +73,8 @@ async def _make_vocabulary_item(
     return item
 
 
-async def test_generates_and_persists_examples_on_first_request(client: AsyncClient):
-    item = await _make_vocabulary_item(client)
+async def test_generates_and_persists_examples_on_first_request(client: AsyncClient, login_as):
+    item = await _make_vocabulary_item(client, login_as)
     fake = FakeLLMProvider(
         ExampleSentenceList(
             examples=[
@@ -87,9 +87,7 @@ async def test_generates_and_persists_examples_on_first_request(client: AsyncCli
     )
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
-    resp = await client.get(
-        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": item["user_id"]}
-    )
+    resp = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
 
     assert resp.status_code == 200
     body = resp.json()
@@ -101,9 +99,9 @@ async def test_generates_and_persists_examples_on_first_request(client: AsyncCli
 
 
 async def test_second_request_serves_cached_examples_without_calling_llm_again(
-    client: AsyncClient,
+    client: AsyncClient, login_as
 ):
-    item = await _make_vocabulary_item(client)
+    item = await _make_vocabulary_item(client, login_as)
     fake = FakeLLMProvider(
         ExampleSentenceList(
             examples=[ExampleSentence(target_text="¡Hola!", base_text="Hello!")],
@@ -112,37 +110,46 @@ async def test_second_request_serves_cached_examples_without_calling_llm_again(
     )
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
-    first = await client.get(
-        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": item["user_id"]}
-    )
-    second = await client.get(
-        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": item["user_id"]}
-    )
+    first = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
+    second = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
 
     assert first.json() == second.json()
     assert fake.call_count == 1  # the second request was served from the DB, not regenerated
 
 
-async def test_examples_for_missing_vocabulary_item_returns_404(client: AsyncClient):
+async def test_examples_for_missing_vocabulary_item_returns_404(client: AsyncClient, login_as):
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
         ExampleSentenceList(examples=[], mnemonic="")
     )
+    user = (
+        await client.post(
+            "/api/users",
+            json={"email": f"examples-404-{uuid.uuid4().hex[:6]}@example.com", "display_name": "T"},
+        )
+    ).json()
+    await login_as(user["id"])
 
-    resp = await client.get(
-        f"/api/vocabulary-items/{uuid.uuid4()}/examples", params={"user_id": uuid.uuid4()}
-    )
+    resp = await client.get(f"/api/vocabulary-items/{uuid.uuid4()}/examples")
 
     assert resp.status_code == 404
 
 
-async def test_examples_for_someone_elses_vocabulary_item_is_403(client: AsyncClient):
-    item = await _make_vocabulary_item(client)
+async def test_examples_for_someone_elses_vocabulary_item_is_403(client: AsyncClient, login_as):
+    item = await _make_vocabulary_item(client, login_as)
     app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
         ExampleSentenceList(examples=[], mnemonic="")
     )
+    other_user = (
+        await client.post(
+            "/api/users",
+            json={
+                "email": f"examples-403-{uuid.uuid4().hex[:6]}@example.com",
+                "display_name": "O",
+            },
+        )
+    ).json()
+    await login_as(other_user["id"])
 
-    resp = await client.get(
-        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": uuid.uuid4()}
-    )
+    resp = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
 
     assert resp.status_code == 403

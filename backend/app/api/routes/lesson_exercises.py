@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404
 from app.database import get_db
 from app.models.course import Course
@@ -12,6 +13,7 @@ from app.models.enums import ExerciseType
 from app.models.language import Language
 from app.models.lesson_exercise import LessonExercise
 from app.models.skill import Skill
+from app.models.user import User
 from app.models.user_exercise_attempt import UserExerciseAttempt
 from app.models.user_progress import UserProgress
 from app.schemas.lesson_exercise import (
@@ -86,15 +88,14 @@ async def delete_lesson_exercise(
 async def submit_lesson_exercise_attempt(
     exercise_id: uuid.UUID,
     payload: UserExerciseAttemptSubmit,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> LessonExerciseAttemptResponse:
     """Grades the answer, logs the attempt, and upserts the skill's
     `UserProgress` -- same overall shape as `POST /cards/{id}/review`
     (look up the entity, compute an outcome via a service function,
-    persist, return entity + effect), except a `LessonExercise` belongs
-    to a shared `Skill`/course rather than one user's row, so `user_id`
-    comes from the request body instead of being implicit.
+    persist, return entity + effect).
     """
     exercise = await get_or_404(db, LessonExercise, exercise_id)
 
@@ -128,7 +129,7 @@ async def submit_lesson_exercise_attempt(
     correct_answer = get_correct_answer(exercise, grammar_config)
 
     attempt = UserExerciseAttempt(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         exercise_id=exercise.id,
         submitted_answer=payload.submitted_answer,
         is_correct=is_correct,
@@ -138,7 +139,7 @@ async def submit_lesson_exercise_attempt(
 
     progress_result = await db.execute(
         select(UserProgress).where(
-            UserProgress.user_id == payload.user_id,
+            UserProgress.user_id == current_user.id,
             UserProgress.skill_id == exercise.skill_id,
         )
     )
@@ -149,7 +150,7 @@ async def submit_lesson_exercise_attempt(
         # fsrs_engine.py) -- set explicitly since we increment below
         # before this row is ever flushed.
         progress = UserProgress(
-            user_id=payload.user_id,
+            user_id=current_user.id,
             skill_id=exercise.skill_id,
             times_attempted=0,
             times_correct=0,

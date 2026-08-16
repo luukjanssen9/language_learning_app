@@ -8,18 +8,16 @@ import { useGenerateReadingPassage, useReadingPassages } from "@/hooks/useReadin
 import { useSkills } from "@/hooks/useSkills";
 import { useUserProgress } from "@/hooks/useUserProgress";
 import { listTenseMoodOptions } from "@/lib/practiceCategories";
-import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { useCourseContext } from "@/providers/CourseProvider";
 
 export default function CategoryPage() {
   const { categoryKey } = useParams<{ categoryKey: string }>();
-  const { userId } = useBootstrapContext();
   const { practiceCategories, selectedCourseId } = useCourseContext();
 
   const category = practiceCategories.find((c) => c.slug === categoryKey);
 
   const { data: skills = [] } = useSkills(selectedCourseId);
-  const { data: progress = [] } = useUserProgress(userId);
+  const { data: progress = [] } = useUserProgress();
   const progressBySkillId = new Map(progress.map((p) => [p.skill_id, p]));
   const matchingSkills = skills
     .filter((s) => s.specialty_module === category?.key)
@@ -35,7 +33,7 @@ export default function CategoryPage() {
   });
   const tenseMoodOptions = conjugationSkillId ? listTenseMoodOptions(exercises) : [];
 
-  const { data: passages = [] } = useReadingPassages(selectedCourseId, userId);
+  const { data: passages = [] } = useReadingPassages(selectedCourseId);
   const generatePassage = useGenerateReadingPassage();
 
   if (!category) {
@@ -77,7 +75,7 @@ export default function CategoryPage() {
         <section className="flex flex-col gap-3">
           <button
             type="button"
-            onClick={() => generatePassage.mutate({ courseId: selectedCourseId, userId })}
+            onClick={() => generatePassage.mutate(selectedCourseId)}
             disabled={generatePassage.isPending}
             className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg disabled:opacity-50"
           >

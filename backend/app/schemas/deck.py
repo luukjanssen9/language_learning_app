@@ -5,7 +5,6 @@ from pydantic import BaseModel, ConfigDict
 
 
 class DeckBase(BaseModel):
-    user_id: uuid.UUID
     course_id: uuid.UUID
     name: str
     description: str | None = None
@@ -28,4 +27,7 @@ class DeckRead(DeckBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    # Not on DeckCreate -- the owner is always the signed-in user
+    # (app/api/auth.py's get_current_user), never a client-supplied value.
+    user_id: uuid.UUID
     created_at: datetime

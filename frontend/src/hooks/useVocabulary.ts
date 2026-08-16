@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { vocabularyApi } from "@/lib/api/vocabulary";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function useVocabularyItems(courseId: string, userId: string) {
+export function useVocabularyItems(courseId: string) {
   return useQuery({
-    queryKey: queryKeys.vocabulary(courseId, userId),
-    queryFn: () => vocabularyApi.list(courseId, userId),
+    queryKey: queryKeys.vocabulary(courseId),
+    queryFn: () => vocabularyApi.list(courseId),
   });
 }
 

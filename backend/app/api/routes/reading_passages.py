@@ -4,11 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404, get_owned_or_404
 from app.database import get_db
 from app.models.course import Course
 from app.models.language import Language
 from app.models.reading_passage import ReadingPassage, ReadingPassageAttempt
+from app.models.user import User
 from app.schemas.reading_passage import (
     ReadingPassageAttemptRead,
     ReadingPassageAttemptSubmit,
@@ -26,6 +28,7 @@ router = APIRouter(prefix="/reading-passages", tags=["reading-passages"])
 @router.post("", response_model=ReadingPassageRead, status_code=status.HTTP_201_CREATED)
 async def create_reading_passage(
     payload: ReadingPassageGenerate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> ReadingPassage:
@@ -33,14 +36,14 @@ async def create_reading_passage(
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)
 
-    known_words = await get_known_words_for_passage(db, course.id, payload.user_id)
+    known_words = await get_known_words_for_passage(db, course.id, current_user.id)
     result = await generate_reading_passage(
         llm, target_language.name, base_language.name, known_words
     )
 
     passage = ReadingPassage(
         course_id=course.id,
-        user_id=payload.user_id,
+        user_id=current_user.id,
         target_text=result.target_text,
         base_text=result.base_text,
         new_vocabulary=[w.model_dump() for w in result.new_vocabulary],
@@ -54,11 +57,13 @@ async def create_reading_passage(
 
 @router.get("", response_model=list[ReadingPassageRead])
 async def list_reading_passages(
-    course_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> list[ReadingPassage]:
     query = (
         select(ReadingPassage)
-        .where(ReadingPassage.course_id == course_id, ReadingPassage.user_id == user_id)
+        .where(ReadingPassage.course_id == course_id, ReadingPassage.user_id == current_user.id)
         .order_by(ReadingPassage.created_at.desc())
     )
     result = await db.execute(query)
@@ -69,10 +74,11 @@ async def list_reading_passages(
 async def submit_reading_passage_attempt(
     passage_id: uuid.UUID,
     payload: ReadingPassageAttemptSubmit,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> ReadingPassageAttempt:
-    passage = await get_owned_or_404(db, ReadingPassage, passage_id, payload.user_id)
+    passage = await get_owned_or_404(db, ReadingPassage, passage_id, current_user.id)
     if not (0 <= payload.question_index < len(passage.questions)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="question_index out of range")
 
@@ -86,7 +92,7 @@ async def submit_reading_passage_attempt(
     )
 
     attempt = ReadingPassageAttempt(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         reading_passage_id=passage.id,
         question_index=payload.question_index,
         submitted_answer=payload.submitted_answer,

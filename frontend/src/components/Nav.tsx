@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { QuickAddButton } from "@/components/QuickAddButton";
+import { useAuthContext } from "@/providers/AuthProvider";
 
 const LINKS = [
   { href: "/", label: "Decks" },
@@ -16,6 +17,7 @@ const LINKS = [
 
 export function Nav() {
   const pathname = usePathname();
+  const { displayName, logout } = useAuthContext();
   // Quick-add creates flashcard notes -- only meaningful in the Decks
   // section (dashboard + deck pages), not Course (lesson content, not
   // Anki-style notes), Vocabulary (its own read-only page), Known words,
@@ -39,11 +41,15 @@ export function Nav() {
           </Link>
         );
       })}
-      {showQuickAdd && (
-        <div className="ml-auto">
-          <QuickAddButton />
+      <div className="ml-auto flex items-center gap-4">
+        {showQuickAdd && <QuickAddButton />}
+        <div className="flex items-center gap-3 text-ink-soft">
+          <span>Signed in as {displayName}</span>
+          <button type="button" onClick={() => void logout()} className="underline">
+            Log out
+          </button>
         </div>
-      )}
+      </div>
     </nav>
   );
 }

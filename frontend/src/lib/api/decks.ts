@@ -2,10 +2,8 @@ import { api } from "./client";
 import type { Deck, DeckCreatePayload, DeckUpdatePayload } from "./types";
 
 export const decksApi = {
-  list: (userId: string) => api.get<Deck[]>(`/decks?${new URLSearchParams({ user_id: userId })}`),
+  list: () => api.get<Deck[]>("/decks"),
   create: (payload: DeckCreatePayload) => api.post<Deck>("/decks", payload),
-  update: (id: string, userId: string, payload: DeckUpdatePayload) =>
-    api.patch<Deck>(`/decks/${id}?${new URLSearchParams({ user_id: userId })}`, payload),
-  remove: (id: string, userId: string) =>
-    api.delete(`/decks/${id}?${new URLSearchParams({ user_id: userId })}`),
+  update: (id: string, payload: DeckUpdatePayload) => api.patch<Deck>(`/decks/${id}`, payload),
+  remove: (id: string) => api.delete(`/decks/${id}`),
 };

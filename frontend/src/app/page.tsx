@@ -6,7 +6,6 @@ import { WeakPointsPanel } from "@/components/dashboard/WeakPointsPanel";
 import { useDeckStatsList } from "@/hooks/useDeckStatsList";
 import { useDecks } from "@/hooks/useDecks";
 import { useWeakPoints } from "@/hooks/useWeakPoints";
-import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { CourseProvider, useCourseContext } from "@/providers/CourseProvider";
 
 // CourseProvider re-instantiated here, not shared from the root layout --
@@ -26,11 +25,10 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  const { userId } = useBootstrapContext();
-  const { data: decks = [], isPending } = useDecks(userId);
+  const { data: decks = [], isPending } = useDecks();
   const { statsByDeckId } = useDeckStatsList(decks);
   const { selectedCourseId } = useCourseContext();
-  const { data: weakPoints } = useWeakPoints(userId, selectedCourseId);
+  const { data: weakPoints } = useWeakPoints(selectedCourseId);
 
   const totals = [...statsByDeckId.values()].reduce(
     (acc, s) => ({

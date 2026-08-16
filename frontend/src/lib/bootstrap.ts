@@ -1,30 +1,23 @@
-// No auth in v1 -- "single-user, assumed" per this project's conventions, meaning the person
-// should never see a signup/setup screen. This silently ensures the one
-// User row, the two Language rows, and the one Course row everything else
-// foreign-keys against all exist, creating only whichever are missing.
+// Identity comes from the signed-in session (AuthProvider) as of Phase 8
+// slice 4 -- this only ensures the two Language rows and the one Course
+// row everything else foreign-keys against exist, creating whichever are
+// missing. Runs nested inside AuthProvider, so a real user is always
+// signed in by the time this fires.
 
 import { api, ApiError } from "./api/client";
 import { coursesApi } from "./api/courses";
 import { languagesApi } from "./api/languages";
-import { usersApi } from "./api/users";
 import { clearBootstrapCache, readBootstrapCache, writeBootstrapCache } from "./storage";
 
 export interface BootstrapResult {
-  userId: string;
   courseId: string;
   baseLanguageId: string;
   targetLanguageId: string;
 }
 
-// Placeholder, not the developer's real address: nothing in this app's UI
-// ever surfaces the email, and this repo is public -- no reason to put a
-// real one in source.
-const DEFAULT_USER_EMAIL = "you@example.com";
-const DEFAULT_USER_DISPLAY_NAME = "Learner";
-
 async function cacheIsStillValid(cached: BootstrapResult): Promise<boolean> {
   try {
-    await api.get(`/users/${cached.userId}`);
+    await api.get(`/courses/${cached.courseId}`);
     return true;
   } catch (err) {
     // Any failure other than a confirmed 404 (network hiccup, backend
@@ -59,16 +52,7 @@ export async function ensureBootstrap(): Promise<BootstrapResult> {
       slug: "en-es",
     }));
 
-  const users = await usersApi.list();
-  const user =
-    users[0] ??
-    (await usersApi.create({
-      email: DEFAULT_USER_EMAIL,
-      display_name: DEFAULT_USER_DISPLAY_NAME,
-    }));
-
   const result: BootstrapResult = {
-    userId: user.id,
     courseId: course.id,
     baseLanguageId: english.id,
     targetLanguageId: spanish.id,

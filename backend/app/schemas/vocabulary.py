@@ -21,10 +21,7 @@ class VocabularyItemBase(BaseModel):
 
 
 class VocabularyItemCreate(VocabularyItemBase):
-    # Required here (unlike VocabularyItemRead.user_id, which is nullable)
-    # -- this route only ever creates a real user's personal vocabulary;
-    # the handful of NULL/shared curriculum rows exist only via seed.py.
-    user_id: uuid.UUID
+    pass
 
 
 class VocabularyItemUpdate(BaseModel):

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useSubmitAttempt } from "@/hooks/useSubmitAttempt";
 import type { VerbGroup } from "@/lib/practiceCategories";
-import { useBootstrapContext } from "@/providers/BootstrapProvider";
 
 // Fixed structural order of the six internal pronoun-slot keys -- these
 // happen to be Spanish words (from Stage A) but are opaque identifiers
@@ -30,7 +29,6 @@ export function ConjugationDrill({
   pronounLabels: Record<string, string>;
   onTryAnother: () => void;
 }) {
-  const { userId } = useBootstrapContext();
   const submitAttempt = useSubmitAttempt();
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -49,7 +47,7 @@ export function ConjugationDrill({
         const answer = (answers[key] ?? "").trim();
         const data = await submitAttempt.mutateAsync({
           exerciseId: exercise.id,
-          payload: { user_id: userId, submitted_answer: { answer } },
+          payload: { submitted_answer: { answer } },
         });
         return [
           key,

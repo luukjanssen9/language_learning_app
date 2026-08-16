@@ -14,7 +14,7 @@ from app.models.enums import CardDirection
 from app.models.lesson_exercise import LessonExerciseVocabulary
 
 
-async def _make_course(client: AsyncClient) -> dict:
+async def _make_course(client: AsyncClient, login_as) -> dict:
     suffix = uuid.uuid4().hex[:6]  # Language.code is capped at String(10)
     lang_en = (
         await client.post("/api/languages", json={"code": f"en-{suffix}", "name": "English"})
@@ -39,28 +39,26 @@ async def _make_course(client: AsyncClient) -> dict:
             json={"email": f"weakpoints-{suffix}@example.com", "display_name": "Weak Points Test"},
         )
     ).json()
+    await login_as(user["id"])
     return {"course_id": course["id"], "user_id": user["id"]}
 
 
-async def _make_deck(client: AsyncClient, course_id: str, user_id: str) -> str:
+async def _make_deck(client: AsyncClient, course_id: str) -> str:
     deck = (
         await client.post(
             "/api/decks",
-            json={"user_id": user_id, "course_id": course_id, "name": "Weak points deck"},
+            json={"course_id": course_id, "name": "Weak points deck"},
         )
     ).json()
     return deck["id"]
 
 
-async def _make_vocab_item(
-    client: AsyncClient, course_id: str, user_id: str, target_text: str
-) -> str:
+async def _make_vocab_item(client: AsyncClient, course_id: str, target_text: str) -> str:
     item = (
         await client.post(
             "/api/vocabulary-items",
             json={
                 "course_id": course_id,
-                "user_id": user_id,
                 "target_text": target_text,
                 "base_text": target_text,
             },
@@ -108,23 +106,23 @@ async def _link_exercise_vocab(
 
 
 async def _submit_attempt(
-    client: AsyncClient, exercise_id: str, user_id: str, *, correct: bool, correct_answer: str
+    client: AsyncClient, exercise_id: str, *, correct: bool, correct_answer: str
 ) -> None:
     text = correct_answer if correct else "definitely-wrong"
     resp = await client.post(
         f"/api/lesson-exercises/{exercise_id}/attempt",
-        json={"user_id": user_id, "submitted_answer": {"text": text}},
+        json={"submitted_answer": {"text": text}},
     )
     assert resp.status_code == 200, resp.text
 
 
 async def test_weak_cards_ranked_by_lapses_and_excludes_zero_lapses(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
-    deck_id = await _make_deck(client, ctx["course_id"], ctx["user_id"])
-    weak_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "gato")
-    fine_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "perro")
+    ctx = await _make_course(client, login_as)
+    deck_id = await _make_deck(client, ctx["course_id"])
+    weak_item = await _make_vocab_item(client, ctx["course_id"], "gato")
+    fine_item = await _make_vocab_item(client, ctx["course_id"], "perro")
 
     db_session.add_all(
         [
@@ -144,9 +142,7 @@ async def test_weak_cards_ranked_by_lapses_and_excludes_zero_lapses(
     )
     await db_session.flush()
 
-    resp = await client.get(
-        "/api/weak-points", params={"user_id": ctx["user_id"], "course_id": ctx["course_id"]}
-    )
+    resp = await client.get("/api/weak-points", params={"course_id": ctx["course_id"]})
 
     assert resp.status_code == 200, resp.text
     weak_cards = resp.json()["weak_cards"]
@@ -156,10 +152,10 @@ async def test_weak_cards_ranked_by_lapses_and_excludes_zero_lapses(
 
 
 async def test_weak_card_without_vocabulary_item_is_excluded(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
-    deck_id = await _make_deck(client, ctx["course_id"], ctx["user_id"])
+    ctx = await _make_course(client, login_as)
+    deck_id = await _make_deck(client, ctx["course_id"])
 
     db_session.add(
         Card(
@@ -172,51 +168,39 @@ async def test_weak_card_without_vocabulary_item_is_excluded(
     )
     await db_session.flush()
 
-    resp = await client.get(
-        "/api/weak-points", params={"user_id": ctx["user_id"], "course_id": ctx["course_id"]}
-    )
+    resp = await client.get("/api/weak-points", params={"course_id": ctx["course_id"]})
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["weak_cards"] == []
 
 
 async def test_weak_lesson_words_respects_min_attempts_and_accuracy_threshold(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient, db_session: AsyncSession, login_as
 ):
-    ctx = await _make_course(client)
+    ctx = await _make_course(client, login_as)
     skill_id = await _make_skill(client, ctx["course_id"], "vocab-basics")
 
     # "malo": 1/2 correct (50% accuracy, 2 attempts) -- should qualify.
-    malo_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "malo")
+    malo_item = await _make_vocab_item(client, ctx["course_id"], "malo")
     malo_exercise = await _make_translation_exercise(client, skill_id, "bad")
     await _link_exercise_vocab(db_session, malo_exercise, malo_item)
-    await _submit_attempt(client, malo_exercise, ctx["user_id"], correct=True, correct_answer="bad")
-    await _submit_attempt(
-        client, malo_exercise, ctx["user_id"], correct=False, correct_answer="bad"
-    )
+    await _submit_attempt(client, malo_exercise, correct=True, correct_answer="bad")
+    await _submit_attempt(client, malo_exercise, correct=False, correct_answer="bad")
 
     # "bien": always correct -- should NOT qualify (accuracy too high).
-    bien_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "bien")
+    bien_item = await _make_vocab_item(client, ctx["course_id"], "bien")
     bien_exercise = await _make_translation_exercise(client, skill_id, "well")
     await _link_exercise_vocab(db_session, bien_exercise, bien_item)
-    await _submit_attempt(
-        client, bien_exercise, ctx["user_id"], correct=True, correct_answer="well"
-    )
-    await _submit_attempt(
-        client, bien_exercise, ctx["user_id"], correct=True, correct_answer="well"
-    )
+    await _submit_attempt(client, bien_exercise, correct=True, correct_answer="well")
+    await _submit_attempt(client, bien_exercise, correct=True, correct_answer="well")
 
     # "una-vez": wrong, but only 1 attempt -- should NOT qualify (below MIN_ATTEMPTS).
-    once_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "una-vez")
+    once_item = await _make_vocab_item(client, ctx["course_id"], "una-vez")
     once_exercise = await _make_translation_exercise(client, skill_id, "once")
     await _link_exercise_vocab(db_session, once_exercise, once_item)
-    await _submit_attempt(
-        client, once_exercise, ctx["user_id"], correct=False, correct_answer="once"
-    )
+    await _submit_attempt(client, once_exercise, correct=False, correct_answer="once")
 
-    resp = await client.get(
-        "/api/weak-points", params={"user_id": ctx["user_id"], "course_id": ctx["course_id"]}
-    )
+    resp = await client.get("/api/weak-points", params={"course_id": ctx["course_id"]})
 
     assert resp.status_code == 200, resp.text
     weak_words = resp.json()["weak_lesson_words"]
@@ -226,32 +210,26 @@ async def test_weak_lesson_words_respects_min_attempts_and_accuracy_threshold(
     assert weak_words[0]["skill_id"] == skill_id
 
 
-async def test_weak_skills_respects_min_attempts_and_mastery_threshold(client: AsyncClient):
-    ctx = await _make_course(client)
+async def test_weak_skills_respects_min_attempts_and_mastery_threshold(
+    client: AsyncClient, login_as
+):
+    ctx = await _make_course(client, login_as)
 
     weak_skill_id = await _make_skill(client, ctx["course_id"], "shaky-skill")
     weak_exercise = await _make_translation_exercise(client, weak_skill_id, "si")
-    await _submit_attempt(client, weak_exercise, ctx["user_id"], correct=False, correct_answer="si")
-    await _submit_attempt(client, weak_exercise, ctx["user_id"], correct=False, correct_answer="si")
+    await _submit_attempt(client, weak_exercise, correct=False, correct_answer="si")
+    await _submit_attempt(client, weak_exercise, correct=False, correct_answer="si")
 
     strong_skill_id = await _make_skill(client, ctx["course_id"], "solid-skill")
     strong_exercise = await _make_translation_exercise(client, strong_skill_id, "no")
-    await _submit_attempt(
-        client, strong_exercise, ctx["user_id"], correct=True, correct_answer="no"
-    )
-    await _submit_attempt(
-        client, strong_exercise, ctx["user_id"], correct=True, correct_answer="no"
-    )
+    await _submit_attempt(client, strong_exercise, correct=True, correct_answer="no")
+    await _submit_attempt(client, strong_exercise, correct=True, correct_answer="no")
 
     barely_tried_skill_id = await _make_skill(client, ctx["course_id"], "barely-tried")
     barely_tried_exercise = await _make_translation_exercise(client, barely_tried_skill_id, "tal")
-    await _submit_attempt(
-        client, barely_tried_exercise, ctx["user_id"], correct=False, correct_answer="tal"
-    )
+    await _submit_attempt(client, barely_tried_exercise, correct=False, correct_answer="tal")
 
-    resp = await client.get(
-        "/api/weak-points", params={"user_id": ctx["user_id"], "course_id": ctx["course_id"]}
-    )
+    resp = await client.get("/api/weak-points", params={"course_id": ctx["course_id"]})
 
     assert resp.status_code == 200, resp.text
     weak_skills = resp.json()["weak_skills"]
@@ -260,12 +238,14 @@ async def test_weak_skills_respects_min_attempts_and_mastery_threshold(client: A
     assert weak_skills[0]["times_attempted"] == 2
 
 
-async def test_second_course_data_does_not_bleed_in(client: AsyncClient, db_session: AsyncSession):
-    ctx_a = await _make_course(client)
-    ctx_b = await _make_course(client)
+async def test_second_course_data_does_not_bleed_in(
+    client: AsyncClient, db_session: AsyncSession, login_as
+):
+    ctx_a = await _make_course(client, login_as)
+    ctx_b = await _make_course(client, login_as)
 
-    deck_b = await _make_deck(client, ctx_b["course_id"], ctx_b["user_id"])
-    other_item = await _make_vocab_item(client, ctx_b["course_id"], ctx_b["user_id"], "otro")
+    deck_b = await _make_deck(client, ctx_b["course_id"])
+    other_item = await _make_vocab_item(client, ctx_b["course_id"], "otro")
     db_session.add(
         Card(
             deck_id=uuid.UUID(deck_b),
@@ -276,9 +256,8 @@ async def test_second_course_data_does_not_bleed_in(client: AsyncClient, db_sess
     )
     await db_session.flush()
 
-    resp = await client.get(
-        "/api/weak-points", params={"user_id": ctx_a["user_id"], "course_id": ctx_a["course_id"]}
-    )
+    await login_as(ctx_a["user_id"])
+    resp = await client.get("/api/weak-points", params={"course_id": ctx_a["course_id"]})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()

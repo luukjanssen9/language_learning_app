@@ -4,11 +4,13 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404
 from app.database import get_db
 from app.models.course import Course
 from app.models.journal_entry import JournalEntry
 from app.models.language import Language
+from app.models.user import User
 from app.schemas.journal_entry import JournalEntryRead, JournalEntrySubmit
 from app.services.journal_correction import correct_journal_entry
 from app.services.llm import LLMProvider, get_llm_provider
@@ -19,6 +21,7 @@ router = APIRouter(prefix="/journal-entries", tags=["journal-entries"])
 @router.post("", response_model=JournalEntryRead, status_code=status.HTTP_201_CREATED)
 async def submit_journal_entry(
     payload: JournalEntrySubmit,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> JournalEntry:
@@ -31,7 +34,7 @@ async def submit_journal_entry(
     )
 
     entry = JournalEntry(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         course_id=payload.course_id,
         submitted_text=payload.text,
         corrected_text=result.corrected_text,
@@ -47,13 +50,13 @@ async def submit_journal_entry(
 
 @router.get("", response_model=list[JournalEntryRead])
 async def list_journal_entries(
-    user_id: uuid.UUID,
     course_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[JournalEntry]:
     query = (
         select(JournalEntry)
-        .where(JournalEntry.user_id == user_id, JournalEntry.course_id == course_id)
+        .where(JournalEntry.user_id == current_user.id, JournalEntry.course_id == course_id)
         .order_by(JournalEntry.created_at.desc())
     )
     result = await db.execute(query)

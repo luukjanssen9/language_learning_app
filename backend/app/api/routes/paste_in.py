@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404
 from app.database import get_db
 from app.models.course import Course
 from app.models.language import Language
+from app.models.user import User
 from app.schemas.paste_in import (
     PasteInAnalyzeRequest,
     PasteInAnalyzeResponse,
@@ -24,7 +26,9 @@ router = APIRouter(prefix="/paste-in", tags=["paste-in"])
 
 @router.post("/analyze", response_model=PasteInAnalyzeResponse)
 async def analyze_pasted_text(
-    payload: PasteInAnalyzeRequest, db: AsyncSession = Depends(get_db)
+    payload: PasteInAnalyzeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> PasteInAnalyzeResponse:
     """No LLM call -- pure tokenization + a set-membership check, so the
     frontend can render highlighted text instantly. See
@@ -34,7 +38,7 @@ async def analyze_pasted_text(
     course = await get_or_404(db, Course, payload.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
 
-    known_words = await get_full_known_word_set(db, course.id, payload.user_id)
+    known_words = await get_full_known_word_set(db, course.id, current_user.id)
     raw_segments = tokenize(payload.text, target_language.grammar_config)
 
     segments: list[TextSegment] = []

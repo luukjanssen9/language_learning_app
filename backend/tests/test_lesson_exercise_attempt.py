@@ -17,11 +17,11 @@ CONJUGATION_GRAMMAR_CONFIG = {
 
 
 async def _make_skill(
-    client: AsyncClient, *, target_grammar_config: dict | None = None
+    client: AsyncClient, login_as, *, target_grammar_config: dict | None = None
 ) -> dict:
     """Builds Language(x2) -> Course -> User -> Skill via HTTP, same
-    convention as test_review_flow.py's _make_deck. Returns the skill
-    dict with `_user_id` stashed on it (attempts need a user_id).
+    convention as test_review_flow.py's _make_deck, then logs in as that
+    user. Returns the skill dict with `_user_id` stashed on it.
     """
     suffix = uuid.uuid4().hex[:6]  # Language.code is capped at String(10)
     lang_en = (
@@ -54,6 +54,7 @@ async def _make_skill(
             json={"email": f"attempt-{suffix}@example.com", "display_name": "Attempt Test"},
         )
     ).json()
+    await login_as(user["id"])
     skill = (
         await client.post(
             "/api/skills",
@@ -74,8 +75,8 @@ async def _make_exercise(
     return resp.json()
 
 
-async def test_multiple_choice_correct_answer_marks_correct(client: AsyncClient):
-    skill = await _make_skill(client)
+async def test_multiple_choice_correct_answer_marks_correct(client: AsyncClient, login_as):
+    skill = await _make_skill(client, login_as)
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -85,7 +86,7 @@ async def test_multiple_choice_correct_answer_marks_correct(client: AsyncClient)
 
     resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"selected_index": 0}},
+        json={"submitted_answer": {"selected_index": 0}},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -95,8 +96,8 @@ async def test_multiple_choice_correct_answer_marks_correct(client: AsyncClient)
     assert body["progress"]["mastery_level"] == 1.0
 
 
-async def test_multiple_choice_wrong_answer_marks_incorrect(client: AsyncClient):
-    skill = await _make_skill(client)
+async def test_multiple_choice_wrong_answer_marks_incorrect(client: AsyncClient, login_as):
+    skill = await _make_skill(client, login_as)
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -106,7 +107,7 @@ async def test_multiple_choice_wrong_answer_marks_incorrect(client: AsyncClient)
 
     resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"selected_index": 1}},
+        json={"submitted_answer": {"selected_index": 1}},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -116,8 +117,8 @@ async def test_multiple_choice_wrong_answer_marks_incorrect(client: AsyncClient)
     assert body["progress"]["mastery_level"] == 0.0
 
 
-async def test_translation_grades_case_and_whitespace_insensitively(client: AsyncClient):
-    skill = await _make_skill(client)
+async def test_translation_grades_case_and_whitespace_insensitively(client: AsyncClient, login_as):
+    skill = await _make_skill(client, login_as)
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -127,14 +128,14 @@ async def test_translation_grades_case_and_whitespace_insensitively(client: Asyn
 
     resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"text": "  HOLA  "}},
+        json={"submitted_answer": {"text": "  HOLA  "}},
     )
     assert resp.status_code == 200
     assert resp.json()["attempt"]["is_correct"] is True
 
 
-async def test_fill_in_blank_wrong_answer(client: AsyncClient):
-    skill = await _make_skill(client)
+async def test_fill_in_blank_wrong_answer(client: AsyncClient, login_as):
+    skill = await _make_skill(client, login_as)
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -144,7 +145,7 @@ async def test_fill_in_blank_wrong_answer(client: AsyncClient):
 
     resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"text": "como"}},
+        json={"submitted_answer": {"text": "como"}},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -152,10 +153,10 @@ async def test_fill_in_blank_wrong_answer(client: AsyncClient):
     assert body["correct_answer"] == "hablo"
 
 
-async def test_translation_grades_missing_accent_as_correct(client: AsyncClient):
+async def test_translation_grades_missing_accent_as_correct(client: AsyncClient, login_as):
     # 2026-08-14: typing Spanish accents on a non-Spanish keyboard is real
     # friction -- grading is accent-insensitive now.
-    skill = await _make_skill(client)
+    skill = await _make_skill(client, login_as)
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -165,7 +166,7 @@ async def test_translation_grades_missing_accent_as_correct(client: AsyncClient)
 
     resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"text": "adios"}},
+        json={"submitted_answer": {"text": "adios"}},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -173,8 +174,12 @@ async def test_translation_grades_missing_accent_as_correct(client: AsyncClient)
     assert body["correct_answer"] == "adiós"
 
 
-async def test_conjugation_exercise_computes_answer_from_grammar_config(client: AsyncClient):
-    skill = await _make_skill(client, target_grammar_config=CONJUGATION_GRAMMAR_CONFIG)
+async def test_conjugation_exercise_computes_answer_from_grammar_config(
+    client: AsyncClient, login_as
+):
+    skill = await _make_skill(
+        client, login_as, target_grammar_config=CONJUGATION_GRAMMAR_CONFIG
+    )
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -184,14 +189,14 @@ async def test_conjugation_exercise_computes_answer_from_grammar_config(client: 
 
     correct_resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"answer": "Hablas"}},
+        json={"submitted_answer": {"answer": "Hablas"}},
     )
     assert correct_resp.status_code == 200
     assert correct_resp.json()["attempt"]["is_correct"] is True
 
     wrong_resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"answer": "hablo"}},
+        json={"submitted_answer": {"answer": "hablo"}},
     )
     assert wrong_resp.status_code == 200
     wrong_body = wrong_resp.json()
@@ -199,8 +204,8 @@ async def test_conjugation_exercise_computes_answer_from_grammar_config(client: 
     assert wrong_body["correct_answer"] == "hablas"
 
 
-async def test_second_attempt_on_same_skill_accumulates_progress(client: AsyncClient):
-    skill = await _make_skill(client)
+async def test_second_attempt_on_same_skill_accumulates_progress(client: AsyncClient, login_as):
+    skill = await _make_skill(client, login_as)
     exercise_a = await _make_exercise(
         client,
         skill["id"],
@@ -216,11 +221,11 @@ async def test_second_attempt_on_same_skill_accumulates_progress(client: AsyncCl
 
     await client.post(
         f"/api/lesson-exercises/{exercise_a['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"selected_index": 0}},
+        json={"submitted_answer": {"selected_index": 0}},
     )
     resp = await client.post(
         f"/api/lesson-exercises/{exercise_b['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"selected_index": 1}},
+        json={"submitted_answer": {"selected_index": 1}},
     )
 
     body = resp.json()
@@ -241,8 +246,8 @@ class FakeLLMProvider:
         return self.result
 
 
-async def test_free_text_translation_style_correct_answer(client: AsyncClient):
-    skill = await _make_skill(client)
+async def test_free_text_translation_style_correct_answer(client: AsyncClient, login_as):
+    skill = await _make_skill(client, login_as)
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -255,10 +260,7 @@ async def test_free_text_translation_style_correct_answer(client: AsyncClient):
 
     resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={
-            "user_id": skill["_user_id"],
-            "submitted_answer": {"text": "Muchas gracias por tu ayuda."},
-        },
+        json={"submitted_answer": {"text": "Muchas gracias por tu ayuda."}},
     )
 
     assert resp.status_code == 200
@@ -269,8 +271,8 @@ async def test_free_text_translation_style_correct_answer(client: AsyncClient):
     assert body["progress"]["times_correct"] == 1
 
 
-async def test_free_text_open_ended_incorrect_answer(client: AsyncClient):
-    skill = await _make_skill(client)
+async def test_free_text_open_ended_incorrect_answer(client: AsyncClient, login_as):
+    skill = await _make_skill(client, login_as)
     exercise = await _make_exercise(
         client,
         skill["id"],
@@ -285,7 +287,7 @@ async def test_free_text_open_ended_incorrect_answer(client: AsyncClient):
 
     resp = await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": skill["_user_id"], "submitted_answer": {"text": "Hace sol hoy."}},
+        json={"submitted_answer": {"text": "Hace sol hoy."}},
     )
 
     assert resp.status_code == 200

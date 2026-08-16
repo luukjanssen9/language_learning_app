@@ -10,7 +10,6 @@ class ReadingPassageGenerate(BaseModel):
     """Request body for POST /reading-passages."""
 
     course_id: uuid.UUID
-    user_id: uuid.UUID
 
 
 class ReadingPassageQuestion(BaseModel):
@@ -39,7 +38,6 @@ class ReadingPassageRead(BaseModel):
 class ReadingPassageAttemptSubmit(BaseModel):
     """Request body for POST /reading-passages/{id}/attempt."""
 
-    user_id: uuid.UUID
     question_index: int
     submitted_answer: str
 

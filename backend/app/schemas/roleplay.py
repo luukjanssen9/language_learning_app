@@ -20,7 +20,6 @@ class RoleplayScenarioRead(BaseModel):
 class ConversationStart(BaseModel):
     """Request body for POST /conversations."""
 
-    user_id: uuid.UUID
     course_id: uuid.UUID
     scenario_id: uuid.UUID
 
@@ -28,7 +27,6 @@ class ConversationStart(BaseModel):
 class MessageSubmit(BaseModel):
     """Request body for POST /conversations/{id}/messages."""
 
-    user_id: uuid.UUID
     text: str
 
 

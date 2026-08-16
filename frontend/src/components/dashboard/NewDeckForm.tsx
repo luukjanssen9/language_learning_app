@@ -5,7 +5,7 @@ import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { useCreateDeck } from "@/hooks/useDecks";
 
 export function NewDeckForm() {
-  const { userId, courseId } = useBootstrapContext();
+  const { courseId } = useBootstrapContext();
   const createDeck = useCreateDeck();
   const [name, setName] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -14,7 +14,7 @@ export function NewDeckForm() {
     e.preventDefault();
     if (!name.trim()) return;
     createDeck.mutate(
-      { user_id: userId, course_id: courseId, name: name.trim() },
+      { course_id: courseId, name: name.trim() },
       {
         onSuccess: () => {
           setName("");

@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404, get_owned_or_404
 from app.database import get_db
 from app.models.course import Course
 from app.models.enums import MessageRole
 from app.models.language import Language
 from app.models.roleplay import Conversation, ConversationMessage, RoleplayScenario
+from app.models.user import User
 from app.schemas.roleplay import (
     ConversationMessageRead,
     ConversationRead,
@@ -29,6 +31,7 @@ router = APIRouter(prefix="/conversations", tags=["roleplay"])
 @router.post("", response_model=ConversationStartResponse, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: ConversationStart,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> ConversationStartResponse:
@@ -41,13 +44,13 @@ async def create_conversation(
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)
 
-    known_words = await get_known_words_for_passage(db, course.id, payload.user_id)
+    known_words = await get_known_words_for_passage(db, course.id, current_user.id)
     result = await start_conversation(
         llm, target_language.name, base_language.name, scenario.setup_prompt, known_words
     )
 
     conversation = Conversation(
-        user_id=payload.user_id, course_id=payload.course_id, scenario_id=payload.scenario_id
+        user_id=current_user.id, course_id=payload.course_id, scenario_id=payload.scenario_id
     )
     db.add(conversation)
     await db.flush()
@@ -68,11 +71,13 @@ async def create_conversation(
 
 @router.get("", response_model=list[ConversationRead])
 async def list_conversations(
-    user_id: uuid.UUID, course_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    course_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> list[Conversation]:
     query = (
         select(Conversation)
-        .where(Conversation.user_id == user_id, Conversation.course_id == course_id)
+        .where(Conversation.user_id == current_user.id, Conversation.course_id == course_id)
         .order_by(Conversation.created_at.desc())
     )
     result = await db.execute(query)
@@ -81,9 +86,11 @@ async def list_conversations(
 
 @router.get("/{conversation_id}/messages", response_model=list[ConversationMessageRead])
 async def list_conversation_messages(
-    conversation_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> list[ConversationMessage]:
-    await get_owned_or_404(db, Conversation, conversation_id, user_id)
+    await get_owned_or_404(db, Conversation, conversation_id, current_user.id)
     query = (
         select(ConversationMessage)
         .where(ConversationMessage.conversation_id == conversation_id)
@@ -97,6 +104,7 @@ async def list_conversation_messages(
 async def send_message(
     conversation_id: uuid.UUID,
     payload: MessageSubmit,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> MessageSubmitResponse:
@@ -105,7 +113,7 @@ async def send_message(
     user's turn in the same call -- the reply and its correction of what
     was just said are the same LLM response, not two round trips.
     """
-    conversation = await get_owned_or_404(db, Conversation, conversation_id, payload.user_id)
+    conversation = await get_owned_or_404(db, Conversation, conversation_id, current_user.id)
     scenario = await get_or_404(db, RoleplayScenario, conversation.scenario_id)
     course = await get_or_404(db, Course, conversation.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
@@ -130,7 +138,7 @@ async def send_message(
     ]
     history.append(ChatTurn(role="user", text=payload.text))
 
-    known_words = await get_known_words_for_passage(db, course.id, conversation.user_id)
+    known_words = await get_known_words_for_passage(db, course.id, current_user.id)
     result = await continue_conversation(
         llm,
         target_language.name,

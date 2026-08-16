@@ -12,7 +12,6 @@ import {
   startPlacementCheck,
   type PlacementCheckState,
 } from "@/lib/placementCheck";
-import { useBootstrapContext } from "@/providers/BootstrapProvider";
 import { useCourseContext } from "@/providers/CourseProvider";
 
 function CenteredMessage({ children }: { children: React.ReactNode }) {
@@ -25,7 +24,6 @@ function CenteredMessage({ children }: { children: React.ReactNode }) {
 
 export default function PlacementCheckPage() {
   const router = useRouter();
-  const { userId } = useBootstrapContext();
   const { selectedCourseId, selectedTargetLanguage } = useCourseContext();
   const bulkAdd = useBulkAddKnownVocabulary();
 
@@ -63,7 +61,7 @@ export default function PlacementCheckPage() {
     if (!state) return;
     const words = estimatedKnownBands(state).flatMap((band) => band.words);
     bulkAdd.mutate(
-      { course_id: selectedCourseId, user_id: userId, target_texts: words },
+      { course_id: selectedCourseId, target_texts: words },
       { onSuccess: () => router.push("/known-vocabulary") },
     );
   }

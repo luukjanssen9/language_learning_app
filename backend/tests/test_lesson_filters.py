@@ -83,7 +83,7 @@ async def test_list_lesson_exercises_filters_by_skill_id(client: AsyncClient):
     assert ids == [exercise_a["id"]]
 
 
-async def test_list_user_progress_filters_by_user_id(client: AsyncClient):
+async def test_list_user_progress_is_scoped_to_the_current_user(client: AsyncClient, login_as):
     course = await _make_course(client)
     suffix = uuid.uuid4().hex[:6]
     skill = (
@@ -113,16 +113,19 @@ async def test_list_user_progress_filters_by_user_id(client: AsyncClient):
         )
     ).json()
 
+    await login_as(user_a["id"])
     await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": user_a["id"], "submitted_answer": {"selected_index": 0}},
+        json={"submitted_answer": {"selected_index": 0}},
     )
+    await login_as(user_b["id"])
     await client.post(
         f"/api/lesson-exercises/{exercise['id']}/attempt",
-        json={"user_id": user_b["id"], "submitted_answer": {"selected_index": 0}},
+        json={"submitted_answer": {"selected_index": 0}},
     )
 
-    resp = await client.get("/api/user-progress", params={"user_id": user_a["id"]})
+    await login_as(user_a["id"])
+    resp = await client.get("/api/user-progress")
     assert resp.status_code == 200
     user_ids = {p["user_id"] for p in resp.json()}
     assert user_ids == {user_a["id"]}
