@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.crud_utils import get_or_404
+from app.api.crud_utils import get_or_404, get_owned_or_404
 from app.database import get_db
 from app.models.course import Course
 from app.models.language import Language
@@ -72,7 +72,7 @@ async def submit_reading_passage_attempt(
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> ReadingPassageAttempt:
-    passage = await get_or_404(db, ReadingPassage, passage_id)
+    passage = await get_owned_or_404(db, ReadingPassage, passage_id, payload.user_id)
     if not (0 <= payload.question_index < len(passage.questions)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="question_index out of range")
 

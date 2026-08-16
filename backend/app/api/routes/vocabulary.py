@@ -25,6 +25,23 @@ from app.services.tts import get_tts_client, synthesize_speech
 router = APIRouter(prefix="/vocabulary-items", tags=["vocabulary"])
 
 
+def _check_read_access(item: VocabularyItem, user_id: uuid.UUID) -> None:
+    """Owner or shared curriculum (`user_id IS NULL`) -- same OR-NULL rule
+    the list endpoint already uses.
+    """
+    if item.user_id is not None and item.user_id != user_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="VocabularyItem not found")
+
+
+def _check_write_access(item: VocabularyItem, user_id: uuid.UUID) -> None:
+    """Owner only -- a `None != user_id` comparison is always true, so a
+    shared curriculum row (no owner) is unconditionally forbidden here,
+    not just for non-owners.
+    """
+    if item.user_id != user_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="VocabularyItem not found")
+
+
 @router.post("", response_model=VocabularyItemRead, status_code=status.HTTP_201_CREATED)
 async def create_vocabulary_item(
     payload: VocabularyItemCreate, db: AsyncSession = Depends(get_db)
@@ -58,16 +75,22 @@ async def list_vocabulary_items(
 
 @router.get("/{item_id}", response_model=VocabularyItemRead)
 async def get_vocabulary_item(
-    item_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> VocabularyItem:
-    return await get_or_404(db, VocabularyItem, item_id)
+    item = await get_or_404(db, VocabularyItem, item_id)
+    _check_read_access(item, user_id)
+    return item
 
 
 @router.patch("/{item_id}", response_model=VocabularyItemRead)
 async def update_vocabulary_item(
-    item_id: uuid.UUID, payload: VocabularyItemUpdate, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: VocabularyItemUpdate,
+    db: AsyncSession = Depends(get_db),
 ) -> VocabularyItem:
     item = await get_or_404(db, VocabularyItem, item_id)
+    _check_write_access(item, user_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
     await db.commit()
@@ -76,8 +99,11 @@ async def update_vocabulary_item(
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_vocabulary_item(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_vocabulary_item(
+    item_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> None:
     item = await get_or_404(db, VocabularyItem, item_id)
+    _check_write_access(item, user_id)
     await db.delete(item)
     await db.commit()
 
@@ -85,6 +111,7 @@ async def delete_vocabulary_item(item_id: uuid.UUID, db: AsyncSession = Depends(
 @router.get("/{item_id}/examples", response_model=list[VocabularyExampleRead])
 async def get_vocabulary_item_examples(
     item_id: uuid.UUID,
+    user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     llm: LLMProvider = Depends(get_llm_provider),
 ) -> list[VocabularyExample]:
@@ -95,6 +122,7 @@ async def get_vocabulary_item_examples(
     docstring for why that matters on Gemini's free tier).
     """
     item = await get_or_404(db, VocabularyItem, item_id)
+    _check_read_access(item, user_id)
 
     result = await db.execute(
         select(VocabularyExample).where(VocabularyExample.vocabulary_item_id == item_id)
@@ -133,6 +161,7 @@ async def get_vocabulary_item_examples(
 @router.get("/{item_id}/audio")
 async def get_vocabulary_item_audio(
     item_id: uuid.UUID,
+    user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     tts_client: texttospeech.TextToSpeechAsyncClient = Depends(get_tts_client),
 ) -> Response:
@@ -145,6 +174,7 @@ async def get_vocabulary_item_audio(
     plays don't even reach this endpoint after the first.
     """
     item = await get_or_404(db, VocabularyItem, item_id)
+    _check_read_access(item, user_id)
 
     result = await db.execute(
         select(VocabularyAudio).where(VocabularyAudio.vocabulary_item_id == item_id)

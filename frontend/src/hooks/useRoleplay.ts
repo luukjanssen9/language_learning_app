@@ -30,18 +30,18 @@ export function useStartConversation() {
   });
 }
 
-export function useConversationMessages(conversationId: string) {
+export function useConversationMessages(conversationId: string, userId: string) {
   return useQuery({
     queryKey: queryKeys.conversationMessages(conversationId),
-    queryFn: () => roleplayApi.messages(conversationId),
+    queryFn: () => roleplayApi.messages(conversationId, userId),
     enabled: Boolean(conversationId),
   });
 }
 
-export function useSendMessage(conversationId: string) {
+export function useSendMessage(conversationId: string, userId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (text: string) => roleplayApi.sendMessage(conversationId, text),
+    mutationFn: (text: string) => roleplayApi.sendMessage(conversationId, userId, text),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.conversationMessages(conversationId),

@@ -31,6 +31,7 @@ class KnownVocabularyItemRead(BaseModel):
 
 class KnownVocabularyPromote(BaseModel):
     deck_id: uuid.UUID
+    user_id: uuid.UUID
 
 
 class KnownVocabularyBulkCreateResponse(BaseModel):

@@ -4,11 +4,13 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MessageBubble } from "@/components/roleplay/MessageBubble";
 import { useConversationMessages, useSendMessage } from "@/hooks/useRoleplay";
+import { useBootstrapContext } from "@/providers/BootstrapProvider";
 
 export default function ConversationPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
-  const { data: messages = [], isPending } = useConversationMessages(conversationId);
-  const sendMessage = useSendMessage(conversationId);
+  const { userId } = useBootstrapContext();
+  const { data: messages = [], isPending } = useConversationMessages(conversationId, userId);
+  const sendMessage = useSendMessage(conversationId, userId);
 
   const [text, setText] = useState("");
   // Shown as an extra bubble the instant the form submits, before the

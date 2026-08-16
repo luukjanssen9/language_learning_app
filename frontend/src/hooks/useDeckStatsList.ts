@@ -14,7 +14,7 @@ export function useDeckStatsList(decks: Deck[]) {
   const results = useQueries({
     queries: decks.map((deck) => ({
       queryKey: queryKeys.cards(deck.id),
-      queryFn: () => cardsApi.list(deck.id),
+      queryFn: () => cardsApi.list(deck.id, deck.user_id),
       // Cards don't push updates -- a card scheduled a few minutes out
       // (a short FSRS learning step) silently becomes due while this
       // page just sits open, and nothing else re-renders to notice.

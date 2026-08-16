@@ -87,7 +87,9 @@ async def test_generates_and_persists_examples_on_first_request(client: AsyncCli
     )
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
-    resp = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
+    resp = await client.get(
+        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": item["user_id"]}
+    )
 
     assert resp.status_code == 200
     body = resp.json()
@@ -110,8 +112,12 @@ async def test_second_request_serves_cached_examples_without_calling_llm_again(
     )
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
-    first = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
-    second = await client.get(f"/api/vocabulary-items/{item['id']}/examples")
+    first = await client.get(
+        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": item["user_id"]}
+    )
+    second = await client.get(
+        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": item["user_id"]}
+    )
 
     assert first.json() == second.json()
     assert fake.call_count == 1  # the second request was served from the DB, not regenerated
@@ -122,6 +128,21 @@ async def test_examples_for_missing_vocabulary_item_returns_404(client: AsyncCli
         ExampleSentenceList(examples=[], mnemonic="")
     )
 
-    resp = await client.get(f"/api/vocabulary-items/{uuid.uuid4()}/examples")
+    resp = await client.get(
+        f"/api/vocabulary-items/{uuid.uuid4()}/examples", params={"user_id": uuid.uuid4()}
+    )
 
     assert resp.status_code == 404
+
+
+async def test_examples_for_someone_elses_vocabulary_item_is_403(client: AsyncClient):
+    item = await _make_vocabulary_item(client)
+    app.dependency_overrides[get_llm_provider] = lambda: FakeLLMProvider(
+        ExampleSentenceList(examples=[], mnemonic="")
+    )
+
+    resp = await client.get(
+        f"/api/vocabulary-items/{item['id']}/examples", params={"user_id": uuid.uuid4()}
+    )
+
+    assert resp.status_code == 403

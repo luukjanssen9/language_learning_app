@@ -20,7 +20,7 @@ export function DeckRow({ deck, stats }: { deck: Deck; stats: DeckStats | undefi
         onCancel={() => setIsEditing(false)}
         onSubmit={(values) => {
           updateDeck.mutate(
-            { id: deck.id, payload: values },
+            { id: deck.id, userId: deck.user_id, payload: values },
             { onSuccess: () => setIsEditing(false) },
           );
         }}

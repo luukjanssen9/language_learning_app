@@ -9,6 +9,7 @@ import { DeckForm } from "@/components/decks/DeckForm";
 import { useCards, useCreateCard, useDeleteCard, useUpdateCard } from "@/hooks/useCards";
 import { useDecks, useDeleteDeck, useUpdateDeck } from "@/hooks/useDecks";
 import { sortCards, type CardSortOrder } from "@/lib/sortCards";
+import { useBootstrapContext } from "@/providers/BootstrapProvider";
 
 const SORT_OPTIONS: { value: CardSortOrder; label: string }[] = [
   { value: "created", label: "Recently added" },
@@ -22,21 +23,22 @@ export default function DeckDetailPage() {
   // to read the dynamic segment.
   const { deckId } = useParams<{ deckId: string }>();
   const router = useRouter();
+  const { userId } = useBootstrapContext();
   const [isAdding, setIsAdding] = useState(false);
   const [isEditingDeck, setIsEditingDeck] = useState(false);
   const [sortOrder, setSortOrder] = useState<CardSortOrder>("created");
 
   // Reuses the same `decks` query the dashboard already populated, rather
   // than a separate get-by-id fetch -- one cache, one source of truth.
-  const { data: decks = [] } = useDecks();
+  const { data: decks = [] } = useDecks(userId);
   const deck = decks.find((d) => d.id === deckId);
   const updateDeck = useUpdateDeck();
   const deleteDeck = useDeleteDeck();
 
-  const { data: cards = [], isPending } = useCards(deckId);
-  const createCard = useCreateCard(deckId);
-  const updateCard = useUpdateCard(deckId);
-  const deleteCard = useDeleteCard(deckId);
+  const { data: cards = [], isPending } = useCards(deckId, userId);
+  const createCard = useCreateCard(deckId, userId);
+  const updateCard = useUpdateCard(deckId, userId);
+  const deleteCard = useDeleteCard(deckId, userId);
   const sortedCards = sortCards(cards, sortOrder);
 
   return (
@@ -53,7 +55,7 @@ export default function DeckDetailPage() {
               onCancel={() => setIsEditingDeck(false)}
               onSubmit={(values) => {
                 updateDeck.mutate(
-                  { id: deckId, payload: values },
+                  { id: deckId, userId, payload: values },
                   { onSuccess: () => setIsEditingDeck(false) },
                 );
               }}
@@ -77,7 +79,10 @@ export default function DeckDetailPage() {
                 type="button"
                 onClick={() => {
                   if (window.confirm("Delete this deck and all its cards?")) {
-                    deleteDeck.mutate(deckId, { onSuccess: () => router.push("/") });
+                    deleteDeck.mutate(
+                      { id: deckId, userId },
+                      { onSuccess: () => router.push("/") },
+                    );
                   }
                 }}
                 className="text-rating-again"

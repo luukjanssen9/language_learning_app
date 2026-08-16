@@ -26,9 +26,9 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
-  const { data: decks = [], isPending } = useDecks();
-  const { statsByDeckId } = useDeckStatsList(decks);
   const { userId } = useBootstrapContext();
+  const { data: decks = [], isPending } = useDecks(userId);
+  const { statsByDeckId } = useDeckStatsList(decks);
   const { selectedCourseId } = useCourseContext();
   const { data: weakPoints } = useWeakPoints(userId, selectedCourseId);
 

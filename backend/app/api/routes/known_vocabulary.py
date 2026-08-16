@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.crud_utils import get_or_404
+from app.api.crud_utils import get_or_404, get_owned_or_404
 from app.database import get_db
 from app.models.course import Course
 from app.models.deck import Deck
@@ -127,8 +127,10 @@ async def bulk_add_known_vocabulary(
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_known_vocabulary(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
-    item = await get_or_404(db, KnownVocabularyItem, item_id)
+async def delete_known_vocabulary(
+    item_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> None:
+    item = await get_owned_or_404(db, KnownVocabularyItem, item_id, user_id)
     await db.delete(item)
     await db.commit()
 
@@ -147,9 +149,13 @@ async def promote_known_vocabulary(
     the same resolve-or-create logic `POST /cards/quick-add` uses, so
     promoting a word that already exists as a `VocabularyItem` in this
     course reuses it rather than duplicating.
+
+    Two separate ownership checks -- the known-vocabulary item and the
+    target deck must both belong to `payload.user_id`, since promotion
+    touches both.
     """
-    item = await get_or_404(db, KnownVocabularyItem, item_id)
-    deck = await get_or_404(db, Deck, payload.deck_id)
+    item = await get_owned_or_404(db, KnownVocabularyItem, item_id, payload.user_id)
+    deck = await get_owned_or_404(db, Deck, payload.deck_id, payload.user_id)
     course = await get_or_404(db, Course, deck.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)

@@ -16,10 +16,10 @@ export default function PasteInPage() {
   const { userId } = useBootstrapContext();
   const { selectedCourseId } = useCourseContext();
   const searchParams = useSearchParams();
-  const { data: decks = [] } = useDecks();
+  const { data: decks = [] } = useDecks(userId);
   const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId, userId);
   const { data: knownWords = [] } = useKnownVocabularyItems(selectedCourseId, userId);
-  const quickAdd = useQuickAddCard();
+  const quickAdd = useQuickAddCard(userId);
   const markKnown = useAddKnownVocabulary();
   const analyze = useAnalyzePasteIn();
   const translate = useTranslateUnknownWords();

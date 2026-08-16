@@ -7,10 +7,10 @@ import { queryKeys } from "@/lib/queryKeys";
  * re-querying, so a rating's rescheduling effect can't reshuffle the queue
  * mid-session. See queryKeys.ts for why `dueCards` is a sibling key to
  * `cards`, not nested under it -- that's what makes this safe. */
-export function useDueCards(deckId: string) {
+export function useDueCards(deckId: string, userId: string) {
   return useQuery({
     queryKey: queryKeys.dueCards(deckId),
-    queryFn: () => cardsApi.due(deckId),
+    queryFn: () => cardsApi.due(deckId, userId),
     staleTime: Infinity,
   });
 }

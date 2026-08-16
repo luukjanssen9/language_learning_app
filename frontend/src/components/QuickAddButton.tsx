@@ -6,6 +6,7 @@ import { useDecks } from "@/hooks/useDecks";
 import { useLanguages } from "@/hooks/useLanguages";
 import { useQuickAddCard } from "@/hooks/useQuickAddCard";
 import type { VocabDeckConfig } from "@/lib/api/types";
+import { useBootstrapContext } from "@/providers/BootstrapProvider";
 
 // Global and reachable from any page, not scoped to a deck's own page --
 // the whole point is capturing a real word mid-shadowing-session, not a
@@ -14,10 +15,11 @@ import type { VocabDeckConfig } from "@/lib/api/types";
 // (focus trapping, Escape-to-close, backdrop) without a UI library.
 export function QuickAddButton() {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const { data: decks = [] } = useDecks();
+  const { userId } = useBootstrapContext();
+  const { data: decks = [] } = useDecks(userId);
   const { data: courses = [] } = useCourses();
   const { data: languages = [] } = useLanguages();
-  const quickAdd = useQuickAddCard();
+  const quickAdd = useQuickAddCard(userId);
 
   const [deckId, setDeckId] = useState("");
   const [targetText, setTargetText] = useState("");

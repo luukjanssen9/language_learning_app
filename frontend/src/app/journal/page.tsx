@@ -13,11 +13,11 @@ import { useCourseContext } from "@/providers/CourseProvider";
 export default function JournalPage() {
   const { userId } = useBootstrapContext();
   const { selectedCourseId } = useCourseContext();
-  const { data: decks = [] } = useDecks();
+  const { data: decks = [] } = useDecks(userId);
   const { data: entries = [], isPending } = useJournalEntries(userId, selectedCourseId);
   const { data: vocabItems = [] } = useVocabularyItems(selectedCourseId, userId);
   const submitEntry = useSubmitJournalEntry();
-  const quickAdd = useQuickAddCard();
+  const quickAdd = useQuickAddCard(userId);
 
   const [text, setText] = useState("");
 

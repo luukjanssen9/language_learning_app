@@ -28,6 +28,7 @@ class ConversationStart(BaseModel):
 class MessageSubmit(BaseModel):
     """Request body for POST /conversations/{id}/messages."""
 
+    user_id: uuid.UUID
     text: str
 
 

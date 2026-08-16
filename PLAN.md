@@ -2057,10 +2057,101 @@ minutes after UTC midnight, which this run happened to land in; confirmed
 by wall-clock, not a Slice 2 regression); frontend 92/92 tests, `tsc`,
 `eslint` all clean.
 
+**2026-08-16 — Phase 8 auth Slice 3 (ownership checks on personal data),
+complete and verified end-to-end.** A full route-by-route audit of all
+~20 files in `backend/app/api/routes/` found the gap was larger than
+PLAN.md's own placeholder note suggested — not just `decks.py`/`cards.py`/
+`user_exercise_attempts.py`/`user_courses.py`, but also `review_logs.py`,
+`conversations.py`, and every route Slice 2 had just added
+(`known_vocabulary.py`, `vocabulary.py`, `reading_passages.py`). Before
+designing further, confirmed the central sequencing question with the
+user (AskUserQuestion): full session-derived identity (removing
+client-supplied `user_id` entirely) isn't possible yet without also
+forcing real Google sign-in everywhere, since `BootstrapProvider` still
+never logs in — that's Slice 4's job. **Slice 3 stays narrower: every
+route that reads or mutates a specific user's resource now verifies the
+resource actually belongs to the `user_id` it's given**, closing "read/edit/
+delete anyone's data by guessing an ID" without yet closing "claim to be
+any user_id," which is inherent to client-supplied identity.
+
+**Backend**: new `get_owned_or_404` helper (`app/api/crud_utils.py`,
+alongside the existing `get_or_404`) — 403 (not 404) on a real ownership
+mismatch, but with the same 404-shaped "not found" detail message, so a
+client can't use the error text to enumerate real IDs. Applied directly
+(`Deck`, `UserCourse`, `KnownVocabularyItem`, `UserExerciseAttempt`,
+`UserProgress`, `Conversation`, `ReadingPassage`) and transitively, by
+loading the parent first (`Card` via `Deck.user_id`, `ReviewLog` via
+`Card.deck_id -> Deck.user_id`). `VocabularyItem`'s nullable `user_id`
+needed one extra rule: a `NULL` row (shared curriculum) is never owned by
+anyone, so mutate/delete unconditionally 403s there too, via a plain
+`item.user_id != user_id` check (`None != anything` is always true in
+Python, so this falls out for free rather than needing a special case);
+reads stay open to everyone via the same OR-NULL rule the Slice 2 list
+endpoint already used. Every previously-unscoped list endpoint
+(`GET /decks`, `GET /cards` with no `deck_id`, `GET /review-logs`,
+`GET /user-exercise-attempts`, `GET /user-courses`) gained a required
+`user_id` filter. Deliberately out of scope, by design: `users.py` (used
+by `bootstrap.ts` before any identity exists to check ownership against)
+and course-content CRUD (`courses`/`languages`/`skills`/`lesson_exercises`/
+`roleplay_scenarios`) — shared/global by Slice 1's own decision, not a
+data-isolation gap.
+
+**Tests**: 30 new tests (one 403 case per hardened route, most in a new
+`tests/test_ownership_checks.py` covering routes with no natural home in
+an existing feature's test file, plus a few added directly into
+`test_review_flow.py`/`test_known_vocabulary.py`/`test_conversations.py`/
+`test_vocabulary_examples.py`/`test_tts.py` alongside their existing
+happy-path coverage); every other integration test touching a now-hardened
+route across the suite needed a `user_id` param/field added since it's
+now required (a large but entirely mechanical pass). One real, intentional
+behavior change surfaced along the way: `POST /cards` (plain create, not
+just `quick-add`) now verifies the target deck's ownership too, closing a
+gap the original plan hadn't explicitly named but which was the same class
+of issue as `quick_add_card`'s existing check.
+
+**Frontend**: `useDecks`/`useCards`/`useDueCards`/`useCreateCard`/
+`useUpdateCard`/`useDeleteCard`/`useQuickAddCard`/`useConversationMessages`/
+`useSendMessage` all gained a `userId` parameter, threaded from
+`useBootstrapContext()` at each of their ~10 call sites (dashboard, deck
+detail, review session, `QuickAddButton`, journal/paste-in/reading-passage
+pages, roleplay conversation page) — `DeckRow.tsx` and `useDeckStatsList.ts`
+needed no new prop at all, since the `Deck` object they already had in
+hand carries its own `user_id`. `review-logs`/`user-exercise-attempts`/
+`user-courses` needed zero frontend changes (confirmed via grep: no
+current caller).
+
+**Live verification**: browser-automation clicks and screenshots were
+unreliable this session (a tooling-side issue, not app-related — clicks
+via `find`+ref weren't registering, screenshots errored on a malformed
+CDP param); verified via direct `curl` against the real dev DB/backend
+instead. `POST /cards/{id}/review` returns 200 with a real FSRS
+recompute for the actual owner, and 403 with `{"detail": "Deck not
+found"}` for a random `user_id` — confirms both the happy path and the
+ID-enumeration-safe error shape work against real data, not just the
+test suite. Every other page (dashboard, deck detail, known-vocabulary,
+roleplay conversation) loads cleanly with correctly-`user_id`-scoped
+requests and zero console errors. Full verification: 216/216 backend
+tests pass, `ruff` clean; frontend 92/92 tests, `tsc`, `eslint` all clean.
+
 ## Current Status
 
-**As of 2026-08-15:**
+**As of 2026-08-16:**
 
+- Done: **Phase 8 — real multi-user auth, Slice 3 (ownership checks on
+  personal data), complete and verified end-to-end** — every route that
+  reads or mutates a specific user's resource (decks, cards, known-
+  vocabulary, personal vocabulary items, reading passages, conversations,
+  review logs, exercise attempts/progress, course enrollments) now
+  verifies real ownership via a new `get_owned_or_404` helper, closing
+  "read/edit/delete anyone's data by guessing an ID." Deliberately still
+  trusts a client-supplied `user_id` for now (full session-derived
+  identity is Slice 4's job, confirmed with the user before starting this
+  slice). 30 new tests, all passing; verified live against the real dev
+  DB via direct `curl` after browser-automation clicks/screenshots proved
+  unreliable this session (tooling issue, not app-related) — see the
+  decision log entry just above for the full breakdown. Slice 4 (full
+  frontend integration replacing `BootstrapProvider` with real login) not
+  started.
 - Done: **Phase 8 — real multi-user auth, Slice 2 (`user_id` on
   `VocabularyItem`/`KnownVocabularyItem`/`ReadingPassage`), complete and
   verified end-to-end** — data-isolation gap closed for personal
@@ -2069,8 +2160,7 @@ by wall-clock, not a Slice 2 regression); frontend 92/92 tests, `tsc`,
   unrelated environment issues found only via live testing (stray duplicate
   backend process serving stale code; a one-off DB-pool timeout), both
   resolved, neither a code bug — see the decision log entry just above for
-  the full breakdown. Slices 3-4 (route ownership hardening, full frontend
-  integration replacing `BootstrapProvider`) not started.
+  the full breakdown.
 - Done: **Phase 8 — real multi-user auth, Slice 1 (backend foundation +
   Google Sign-In), complete and verified live** — real Google account
   sign-in confirmed working end-to-end, including the legacy-data-claim
@@ -2271,14 +2361,18 @@ by wall-clock, not a Slice 2 regression); frontend 92/92 tests, `tsc`,
     dependency-override wiring are correct.
   - ruff clean across the whole backend (`ruff check .`).
 - Blocked: nothing.
-- Next: Phase 8 auth Slice 3 — route ownership hardening (derive user
-  identity from the session instead of a client-supplied `user_id`, add
-  ownership checks to `decks.py`/`cards.py`/`user_exercise_attempts.py`/
-  `user_courses.py`/etc.). Checkpoint with the user first per this
-  project's per-slice cadence, as always.
+- Next: Phase 8 auth Slice 4 — full frontend integration: replace
+  `BootstrapProvider`'s silent create/reuse with real Google sign-in
+  (wire the existing `/login` page in, redirect unauthenticated users
+  there), then flip every route from client-supplied `user_id` to
+  session-derived identity (`get_current_user`, already built in Slice 1,
+  still unused). Checkpoint with the user first per this project's
+  per-slice cadence, as always.
 - Open questions: none blocking — the three big auth-architecture
   decisions (Course stays shared, Google-only, reassign legacy data) are
-  already resolved; execution is just working through Slices 3-4 now.
+  already resolved, and Slice 3's own scoping question (ownership checks
+  now vs. full session-derived identity now) was resolved with the user
+  before starting; execution is just working through Slice 4 now.
 
 ## Known Issues / Follow-ups
 

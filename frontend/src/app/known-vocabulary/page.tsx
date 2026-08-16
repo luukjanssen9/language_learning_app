@@ -24,7 +24,7 @@ import { useCourseContext } from "@/providers/CourseProvider";
 export default function KnownVocabularyPage() {
   const { userId } = useBootstrapContext();
   const { selectedCourseId, selectedTargetLanguage } = useCourseContext();
-  const { data: decks = [] } = useDecks();
+  const { data: decks = [] } = useDecks(userId);
   const { data: items = [], isPending } = useKnownVocabularyItems(selectedCourseId, userId);
   const { data: fullSet } = useKnownWordSet(selectedCourseId, userId);
   const { data: masteredWords = [] } = useMasteredVocabulary(selectedCourseId, userId);

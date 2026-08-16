@@ -201,9 +201,7 @@ async def test_attempt_grades_and_persists(client: AsyncClient):
         )
     ).json()
 
-    fake_grade = FakeLLMProvider(
-        ComprehensionGradeResult(is_correct=True, feedback="Correct!")
-    )
+    fake_grade = FakeLLMProvider(ComprehensionGradeResult(is_correct=True, feedback="Correct!"))
     app.dependency_overrides[get_llm_provider] = lambda: fake_grade
 
     resp = await client.post(

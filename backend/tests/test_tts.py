@@ -82,7 +82,9 @@ async def test_generates_and_persists_audio_on_first_request(client: AsyncClient
     fake = FakeTTSClient(audio_content=b"real-sounding-mp3-bytes")
     app.dependency_overrides[get_tts_client] = lambda: fake
 
-    resp = await client.get(f"/api/vocabulary-items/{item['id']}/audio")
+    resp = await client.get(
+        f"/api/vocabulary-items/{item['id']}/audio", params={"user_id": item["user_id"]}
+    )
 
     assert resp.status_code == 200
     assert resp.content == b"real-sounding-mp3-bytes"
@@ -97,8 +99,12 @@ async def test_second_request_serves_cached_audio_without_calling_tts_again(
     fake = FakeTTSClient()
     app.dependency_overrides[get_tts_client] = lambda: fake
 
-    first = await client.get(f"/api/vocabulary-items/{item['id']}/audio")
-    second = await client.get(f"/api/vocabulary-items/{item['id']}/audio")
+    first = await client.get(
+        f"/api/vocabulary-items/{item['id']}/audio", params={"user_id": item["user_id"]}
+    )
+    second = await client.get(
+        f"/api/vocabulary-items/{item['id']}/audio", params={"user_id": item["user_id"]}
+    )
 
     assert first.content == second.content
     assert fake.call_count == 1  # the second request was served from the DB, not regenerated
@@ -108,7 +114,9 @@ async def test_audio_for_language_without_tts_config_returns_404(client: AsyncCl
     item = await _make_vocabulary_item(client, target_grammar_config={})
     app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
 
-    resp = await client.get(f"/api/vocabulary-items/{item['id']}/audio")
+    resp = await client.get(
+        f"/api/vocabulary-items/{item['id']}/audio", params={"user_id": item["user_id"]}
+    )
 
     assert resp.status_code == 404
 
@@ -116,6 +124,19 @@ async def test_audio_for_language_without_tts_config_returns_404(client: AsyncCl
 async def test_audio_for_missing_vocabulary_item_returns_404(client: AsyncClient):
     app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
 
-    resp = await client.get(f"/api/vocabulary-items/{uuid.uuid4()}/audio")
+    resp = await client.get(
+        f"/api/vocabulary-items/{uuid.uuid4()}/audio", params={"user_id": uuid.uuid4()}
+    )
 
     assert resp.status_code == 404
+
+
+async def test_audio_for_someone_elses_vocabulary_item_is_403(client: AsyncClient):
+    item = await _make_vocabulary_item(client, target_grammar_config=TTS_CONFIG)
+    app.dependency_overrides[get_tts_client] = lambda: FakeTTSClient()
+
+    resp = await client.get(
+        f"/api/vocabulary-items/{item['id']}/audio", params={"user_id": uuid.uuid4()}
+    )
+
+    assert resp.status_code == 403

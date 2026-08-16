@@ -190,9 +190,7 @@ async def test_weak_lesson_words_respects_min_attempts_and_accuracy_threshold(
     malo_item = await _make_vocab_item(client, ctx["course_id"], ctx["user_id"], "malo")
     malo_exercise = await _make_translation_exercise(client, skill_id, "bad")
     await _link_exercise_vocab(db_session, malo_exercise, malo_item)
-    await _submit_attempt(
-        client, malo_exercise, ctx["user_id"], correct=True, correct_answer="bad"
-    )
+    await _submit_attempt(client, malo_exercise, ctx["user_id"], correct=True, correct_answer="bad")
     await _submit_attempt(
         client, malo_exercise, ctx["user_id"], correct=False, correct_answer="bad"
     )
@@ -233,12 +231,8 @@ async def test_weak_skills_respects_min_attempts_and_mastery_threshold(client: A
 
     weak_skill_id = await _make_skill(client, ctx["course_id"], "shaky-skill")
     weak_exercise = await _make_translation_exercise(client, weak_skill_id, "si")
-    await _submit_attempt(
-        client, weak_exercise, ctx["user_id"], correct=False, correct_answer="si"
-    )
-    await _submit_attempt(
-        client, weak_exercise, ctx["user_id"], correct=False, correct_answer="si"
-    )
+    await _submit_attempt(client, weak_exercise, ctx["user_id"], correct=False, correct_answer="si")
+    await _submit_attempt(client, weak_exercise, ctx["user_id"], correct=False, correct_answer="si")
 
     strong_skill_id = await _make_skill(client, ctx["course_id"], "solid-skill")
     strong_exercise = await _make_translation_exercise(client, strong_skill_id, "no")

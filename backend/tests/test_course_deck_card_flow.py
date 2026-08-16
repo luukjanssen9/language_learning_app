@@ -52,7 +52,9 @@ async def test_full_course_deck_card_flow(client: AsyncClient):
     ).json()
 
     card_resp = await client.post(
-        "/api/cards", json={"deck_id": deck["id"], "vocabulary_item_id": vocab["id"]}
+        "/api/cards",
+        params={"user_id": user["id"]},
+        json={"deck_id": deck["id"], "vocabulary_item_id": vocab["id"]},
     )
     assert card_resp.status_code == 201
     card = card_resp.json()

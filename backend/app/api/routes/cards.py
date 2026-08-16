@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.crud_utils import get_or_404
+from app.api.crud_utils import get_or_404, get_owned_or_404
 from app.database import get_db
 from app.models.card import Card
 from app.models.course import Course
@@ -33,7 +33,10 @@ router = APIRouter(prefix="/cards", tags=["cards"])
 
 
 @router.post("", response_model=CardRead, status_code=status.HTTP_201_CREATED)
-async def create_card(payload: CardCreate, db: AsyncSession = Depends(get_db)) -> Card:
+async def create_card(
+    payload: CardCreate, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> Card:
+    await get_owned_or_404(db, Deck, payload.deck_id, user_id)
     card = Card(**payload.model_dump())
     db.add(card)
     await db.commit()
@@ -43,7 +46,7 @@ async def create_card(payload: CardCreate, db: AsyncSession = Depends(get_db)) -
 
 @router.post("/quick-add", response_model=CardQuickAddResponse, status_code=status.HTTP_201_CREATED)
 async def quick_add_card(
-    payload: CardQuickAdd, db: AsyncSession = Depends(get_db)
+    payload: CardQuickAdd, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> CardQuickAddResponse:
     """Creates one `VocabularyItem` ("note") plus the `Card`(s) it produces,
     in one round trip -- see `CardQuickAdd`'s docstring for why this is a
@@ -58,7 +61,7 @@ async def quick_add_card(
     "bank" -> bank/couch/bench) still get their own note, since they
     differ on `base_text` -- see PLAN.md's 2026-08-14 follow-up.
     """
-    deck = await get_or_404(db, Deck, payload.deck_id)
+    deck = await get_owned_or_404(db, Deck, payload.deck_id, user_id)
     course = await get_or_404(db, Course, deck.course_id)
     target_language = await get_or_404(db, Language, course.target_language_id)
 
@@ -89,11 +92,18 @@ async def quick_add_card(
 
 @router.get("", response_model=list[CardRead])
 async def list_cards(
-    deck_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)
+    user_id: uuid.UUID,
+    deck_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
 ) -> list[Card]:
     query = select(Card).options(selectinload(Card.vocabulary_item)).order_by(Card.created_at)
     if deck_id is not None:
+        await get_owned_or_404(db, Deck, deck_id, user_id)
         query = query.where(Card.deck_id == deck_id)
+    else:
+        # No deck_id -- every card across every one of this user's own
+        # decks, not literally every card in the database.
+        query = query.join(Deck, Deck.id == Card.deck_id).where(Deck.user_id == user_id)
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -179,11 +189,12 @@ async def _count_new_cards_shown_today(db: AsyncSession, deck_id: uuid.UUID, now
 @router.get("/due", response_model=list[CardRead])
 async def list_due_cards(
     deck_id: uuid.UUID,
+    user_id: uuid.UUID,
     new_limit: int | None = Query(None, ge=0),
     due_limit: int = Query(100, ge=1),
     db: AsyncSession = Depends(get_db),
 ) -> list[Card]:
-    deck = await get_or_404(db, Deck, deck_id)
+    deck = await get_owned_or_404(db, Deck, deck_id, user_id)
 
     now = datetime.now(UTC)
     await _unlock_eligible_production_cards(db, deck_id, now)
@@ -231,21 +242,25 @@ async def list_due_cards(
 
 
 @router.get("/{card_id}", response_model=CardRead)
-async def get_card(card_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Card:
+async def get_card(
+    card_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> Card:
     result = await db.execute(
         select(Card).options(selectinload(Card.vocabulary_item)).where(Card.id == card_id)
     )
     card = result.scalar_one_or_none()
     if card is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Card not found")
+    await get_owned_or_404(db, Deck, card.deck_id, user_id)
     return card
 
 
 @router.patch("/{card_id}", response_model=CardRead)
 async def update_card(
-    card_id: uuid.UUID, payload: CardUpdate, db: AsyncSession = Depends(get_db)
+    card_id: uuid.UUID, user_id: uuid.UUID, payload: CardUpdate, db: AsyncSession = Depends(get_db)
 ) -> Card:
     card = await get_or_404(db, Card, card_id)
+    await get_owned_or_404(db, Deck, card.deck_id, user_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(card, field, value)
     await db.commit()
@@ -254,15 +269,21 @@ async def update_card(
 
 
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_card(card_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_card(
+    card_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> None:
     card = await get_or_404(db, Card, card_id)
+    await get_owned_or_404(db, Deck, card.deck_id, user_id)
     await db.delete(card)
     await db.commit()
 
 
 @router.post("/{card_id}/review", response_model=CardReviewResponse)
 async def submit_card_review(
-    card_id: uuid.UUID, payload: CardReviewSubmit, db: AsyncSession = Depends(get_db)
+    card_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: CardReviewSubmit,
+    db: AsyncSession = Depends(get_db),
 ) -> CardReviewResponse:
     """Deliberately doesn't follow update_card's `model_dump(exclude_unset=True)
     + setattr` pattern: the fields this writes aren't a 1:1 payload mapping,
@@ -270,6 +291,7 @@ async def submit_card_review(
     that computation belongs in the service layer, not a generic loop here.
     """
     card = await get_or_404(db, Card, card_id)
+    await get_owned_or_404(db, Deck, card.deck_id, user_id)
 
     if card.state == CardState.SUSPENDED:
         raise HTTPException(

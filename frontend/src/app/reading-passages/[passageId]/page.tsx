@@ -95,10 +95,10 @@ export default function ReadingPassagePage() {
   const { data: passages = [], isPending } = useReadingPassages(courseId, userId);
   const passage = passages.find((p) => p.id === passageId);
 
-  const { data: decks = [] } = useDecks();
+  const { data: decks = [] } = useDecks(userId);
   const { data: vocabItems = [] } = useVocabularyItems(courseId, userId);
   const { data: knownWords = [] } = useKnownVocabularyItems(courseId, userId);
-  const quickAdd = useQuickAddCard();
+  const quickAdd = useQuickAddCard(userId);
   const markKnown = useAddKnownVocabulary();
   const submitAttempt = useSubmitReadingPassageAttempt();
 

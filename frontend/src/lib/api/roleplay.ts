@@ -16,8 +16,13 @@ export const roleplayApi = {
     ),
   startConversation: (payload: ConversationStartPayload) =>
     api.post<ConversationStartResponse>("/conversations", payload),
-  messages: (conversationId: string) =>
-    api.get<ConversationMessage[]>(`/conversations/${conversationId}/messages`),
-  sendMessage: (conversationId: string, text: string) =>
-    api.post<MessageSubmitResponse>(`/conversations/${conversationId}/messages`, { text }),
+  messages: (conversationId: string, userId: string) =>
+    api.get<ConversationMessage[]>(
+      `/conversations/${conversationId}/messages?${new URLSearchParams({ user_id: userId })}`,
+    ),
+  sendMessage: (conversationId: string, userId: string, text: string) =>
+    api.post<MessageSubmitResponse>(`/conversations/${conversationId}/messages`, {
+      user_id: userId,
+      text,
+    }),
 };

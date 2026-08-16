@@ -3,8 +3,8 @@ import { decksApi } from "@/lib/api/decks";
 import type { DeckCreatePayload, DeckUpdatePayload } from "@/lib/api/types";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function useDecks() {
-  return useQuery({ queryKey: queryKeys.decks, queryFn: decksApi.list });
+export function useDecks(userId: string) {
+  return useQuery({ queryKey: queryKeys.decks, queryFn: () => decksApi.list(userId) });
 }
 
 export function useCreateDeck() {
@@ -18,8 +18,15 @@ export function useCreateDeck() {
 export function useUpdateDeck() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: DeckUpdatePayload }) =>
-      decksApi.update(id, payload),
+    mutationFn: ({
+      id,
+      userId,
+      payload,
+    }: {
+      id: string;
+      userId: string;
+      payload: DeckUpdatePayload;
+    }) => decksApi.update(id, userId, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.decks }),
   });
 }
@@ -27,7 +34,7 @@ export function useUpdateDeck() {
 export function useDeleteDeck() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => decksApi.remove(id),
+    mutationFn: ({ id, userId }: { id: string; userId: string }) => decksApi.remove(id, userId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.decks }),
   });
 }

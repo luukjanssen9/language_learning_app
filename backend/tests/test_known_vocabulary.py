@@ -174,7 +174,9 @@ async def test_delete_known_vocabulary(client: AsyncClient):
         )
     ).json()
 
-    resp = await client.delete(f"/api/known-vocabulary/{item['id']}")
+    resp = await client.delete(
+        f"/api/known-vocabulary/{item['id']}", params={"user_id": deck["user_id"]}
+    )
     assert resp.status_code == 204
 
     list_resp = await client.get(
@@ -201,7 +203,8 @@ async def test_promote_creates_real_vocabulary_item_and_flips_source(client: Asy
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
     resp = await client.post(
-        f"/api/known-vocabulary/{item['id']}/promote", json={"deck_id": deck["id"]}
+        f"/api/known-vocabulary/{item['id']}/promote",
+        json={"deck_id": deck["id"], "user_id": deck["user_id"]},
     )
 
     assert resp.status_code == 200, resp.text
@@ -229,6 +232,7 @@ async def test_promoting_a_word_that_already_exists_as_vocabulary_item_reuses_it
     existing = (
         await client.post(
             "/api/cards/quick-add",
+            params={"user_id": deck["user_id"]},
             json={"deck_id": deck["id"], "target_text": "PERRO", "base_text": "DOG"},
         )
     ).json()
@@ -248,7 +252,8 @@ async def test_promoting_a_word_that_already_exists_as_vocabulary_item_reuses_it
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
     resp = await client.post(
-        f"/api/known-vocabulary/{item['id']}/promote", json={"deck_id": deck["id"]}
+        f"/api/known-vocabulary/{item['id']}/promote",
+        json={"deck_id": deck["id"], "user_id": deck["user_id"]},
     )
 
     assert resp.status_code == 200, resp.text
@@ -531,3 +536,65 @@ async def test_list_full_set_and_mastered_exclude_other_users_data(
         params={"course_id": deck_a["course_id"], "user_id": deck_a["user_id"]},
     )
     assert [i["target_text"] for i in mastered_resp.json()] == ["perro"]
+
+
+async def test_delete_someone_elses_known_vocabulary_is_403(client: AsyncClient):
+    deck_a = await _make_deck(client)
+    deck_b = await _make_deck_in_course(client, deck_a["course_id"])
+    item = (
+        await client.post(
+            "/api/known-vocabulary",
+            json={
+                "course_id": deck_a["course_id"],
+                "user_id": deck_a["user_id"],
+                "target_text": "gato",
+            },
+        )
+    ).json()
+
+    resp = await client.delete(
+        f"/api/known-vocabulary/{item['id']}", params={"user_id": deck_b["user_id"]}
+    )
+    assert resp.status_code == 403
+
+
+async def test_promote_someone_elses_known_vocabulary_is_403(client: AsyncClient):
+    deck_a = await _make_deck(client)
+    deck_b = await _make_deck_in_course(client, deck_a["course_id"])
+    item = (
+        await client.post(
+            "/api/known-vocabulary",
+            json={
+                "course_id": deck_a["course_id"],
+                "user_id": deck_a["user_id"],
+                "target_text": "perro",
+            },
+        )
+    ).json()
+
+    resp = await client.post(
+        f"/api/known-vocabulary/{item['id']}/promote",
+        json={"deck_id": deck_a["id"], "user_id": deck_b["user_id"]},
+    )
+    assert resp.status_code == 403
+
+
+async def test_promote_into_someone_elses_deck_is_403(client: AsyncClient):
+    deck_a = await _make_deck(client)
+    deck_b = await _make_deck_in_course(client, deck_a["course_id"])
+    item = (
+        await client.post(
+            "/api/known-vocabulary",
+            json={
+                "course_id": deck_a["course_id"],
+                "user_id": deck_a["user_id"],
+                "target_text": "perro",
+            },
+        )
+    ).json()
+
+    resp = await client.post(
+        f"/api/known-vocabulary/{item['id']}/promote",
+        json={"deck_id": deck_b["id"], "user_id": deck_a["user_id"]},
+    )
+    assert resp.status_code == 403

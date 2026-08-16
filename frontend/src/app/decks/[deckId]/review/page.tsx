@@ -13,6 +13,7 @@ import { useDueCards } from "@/hooks/useDueCards";
 import { useLanguages } from "@/hooks/useLanguages";
 import { Flashcard } from "@/components/review/Flashcard";
 import { RatingButtons } from "@/components/review/RatingButtons";
+import { useBootstrapContext } from "@/providers/BootstrapProvider";
 
 const KEY_TO_RATING: Record<string, ReviewRating> = {
   "1": "again",
@@ -41,8 +42,9 @@ function CenteredMessage({ children }: { children: React.ReactNode }) {
 export default function ReviewSessionPage() {
   const { deckId } = useParams<{ deckId: string }>();
   const queryClient = useQueryClient();
+  const { userId } = useBootstrapContext();
 
-  const { data: fetchedQueue, isPending } = useDueCards(deckId);
+  const { data: fetchedQueue, isPending } = useDueCards(deckId, userId);
 
   // A local, mutable copy of the fetched queue -- unlike the frozen fetch
   // itself (staleTime: Infinity, see useDueCards.ts), this needs to grow
@@ -68,7 +70,7 @@ export default function ReviewSessionPage() {
   // elsewhere in the app, so using that context here would show the
   // wrong language's transliteration/direction config if the two ever
   // diverge.
-  const { data: decks = [] } = useDecks();
+  const { data: decks = [] } = useDecks(userId);
   const { data: courses = [] } = useCourses();
   const { data: languages = [] } = useLanguages();
   const deck = decks.find((d) => d.id === deckId);
@@ -93,7 +95,7 @@ export default function ReviewSessionPage() {
 
   const reviewMutation = useMutation({
     mutationFn: ({ cardId, rating }: { cardId: string; rating: ReviewRating }) =>
-      cardsApi.review(cardId, rating),
+      cardsApi.review(cardId, userId, rating),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.cards(deckId) });
       const updated = data.card;

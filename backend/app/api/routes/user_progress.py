@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.crud_utils import get_or_404
+from app.api.crud_utils import get_owned_or_404
 from app.database import get_db
 from app.models.user_progress import UserProgress
 from app.schemas.user_progress import UserProgressRead
@@ -25,6 +25,6 @@ async def list_user_progress(
 
 @router.get("/{user_progress_id}", response_model=UserProgressRead)
 async def get_user_progress(
-    user_progress_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    user_progress_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> UserProgress:
-    return await get_or_404(db, UserProgress, user_progress_id)
+    return await get_owned_or_404(db, UserProgress, user_progress_id, user_id)

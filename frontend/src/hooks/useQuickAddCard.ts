@@ -3,10 +3,10 @@ import { cardsApi } from "@/lib/api/cards";
 import type { CardQuickAddPayload } from "@/lib/api/types";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function useQuickAddCard() {
+export function useQuickAddCard(userId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CardQuickAddPayload) => cardsApi.quickAdd(payload),
+    mutationFn: (payload: CardQuickAddPayload) => cardsApi.quickAdd(userId, payload),
     // Deliberately NOT invalidating dueCards -- a due-queue is frozen for
     // the length of a review session (see queryKeys.ts), and a card
     // added mid-session shouldn't reshuffle it, same reasoning as why
