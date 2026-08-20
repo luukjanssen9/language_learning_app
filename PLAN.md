@@ -52,7 +52,7 @@ Living project plan and status log. Read at the start of every session; update C
   split further (see the 2026-08-15 decision log entry).
 - [ ] **Phase 7 — Speech (stretch goal)**: Whisper integration, pronunciation
   comparison/feedback.
-- [ ] **Phase 8 — Scalability check, polish & deploy**: ~~add a second
+- [x] **Phase 8 — Scalability check, polish & deploy**: ~~add a second
   language's config to prove the architecture generalizes~~ — done early,
   2026-08-14 (v1 Dutch course, see Decisions Log). Real multi-user auth
   (Google Sign-In) added to this phase's scope 2026-08-15, per the user's
@@ -62,9 +62,11 @@ Living project plan and status log. Read at the start of every session; update C
   **all 4 slices done and verified end-to-end, 2026-08-16.**
   ~~Performance/cost review~~ — done, 2026-08-16 (rate limiting added,
   one real N+1 fixed, see Decisions Log). ~~Final test pass~~ — done,
-  2026-08-16 (coverage-gap audit, 31 new tests, see Decisions Log). Still
-  remaining: deployment; final README with setup, architecture overview,
-  screenshots/demo.
+  2026-08-16 (coverage-gap audit, 31 new tests, see Decisions Log).
+  ~~Deployment; final README~~ — done, 2026-08-20: production Docker
+  image + Railway config for the backend, a full Railway+Vercel
+  deployment walkthrough, and a rewritten README with architecture
+  overview and live screenshots (see Decisions Log). **Phase 8 complete.**
 
 ## Decisions Log
 
@@ -2316,10 +2318,105 @@ Final tallies: backend 242/242 (up from 222 — 20 new tests), `ruff`
 clean; frontend 103/103 (up from 92 — 11 new tests), `tsc`/`eslint`
 clean.
 
+**2026-08-20 — Phase 8's last piece (deployment + final README) complete;
+Phase 8, and the project's originally-planned scope, is now done.**
+Backend host finalized as **Railway**, not Fly.io (both were left
+tentative in the 2026-08-11 decision) — user's call, for the simpler
+dashboard and built-in Postgres addon; frontend stays Vercel as already
+decided. No accounts existed yet on either platform, so this session's
+output is deployment *infrastructure and a full walkthrough*, not a live
+deployed URL — the actual account creation/env var entry is manual,
+future work for the user.
+
+**Backend production image**: new `backend/Dockerfile.prod`, deliberately
+a separate file from the existing `backend/Dockerfile` rather than one
+parameterized image — that one stays local-docker-compose-only (editable
+install so the bind mount is what actually runs, `--reload`, dev deps for
+running `ruff`/`pytest` inside the container), closing the 2026-08-16
+performance-review Known Issue that flagged reusing it for prod as wrong
+("always runs `uvicorn --reload` with dev dependencies installed").
+`Dockerfile.prod` is multi-stage (build tools never reach the final
+layer), installs only base deps (no `[dev]` extra), runs as a non-root
+`appuser`, and has no `--reload`. New `backend/docker-entrypoint.sh`
+handles two things a static `CMD` couldn't: (1) Railway assigns the
+listen port dynamically via `$PORT` rather than always 8000, so the
+entrypoint execs `uvicorn` with `${PORT:-8000}`; (2) Railway (like most
+PaaS env-var UIs) has no file-upload secret mechanism for the TTS
+service-account keyfile, so a new `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+env var carries the *content* of `gcp-tts-credentials.json`, and the
+entrypoint materializes it to disk before start — guarded so it only
+fires when the target file isn't already present, leaving local
+docker-compose's existing bind-mount approach untouched. New
+`backend/railway.json` points Railway's build at `Dockerfile.prod`
+(rather than auto-detecting the dev one) and sets `healthcheckPath:
+/health`. Verified locally, not just by inspection: built the image
+directly (`docker build -f Dockerfile.prod`), ran it against the real
+dev Postgres container on the compose network with `PORT=8010`, and
+confirmed `/health` returns 200, the process runs as `appuser` (not
+root), and no `--reload` flag is present — before writing a word of the
+deployment walkthrough describing it.
+
+Migrations stay a manual `alembic upgrade head` step even for the first
+Railway deploy, run via Railway's dashboard Shell — consistent with the
+existing 2026-08-12 "migrations are manual, not automatic on container
+startup" decision, not a new exception carved out for prod.
+
+**README rewritten end to end**: status brought current through Phase 8
+(previously stuck at "Phases 1-3 complete" from Phase 3, badly stale);
+new Features list covering every shipped slice; an architecture section
+(tech stack table + a small ASCII diagram of frontend/backend/Postgres/
+Gemini/Cloud TTS); a full step-by-step **Deployment** section for Railway
+(backend + Postgres, including the exact env-var table and the
+`GOOGLE_APPLICATION_CREDENTIALS_JSON`/`SECRET_KEY`-generation steps) and
+Vercel (frontend, root-directory + env vars), plus a third "wire them
+together" step (`FRONTEND_ORIGIN` update, Google OAuth authorized-origin
+addition) — written as a from-scratch walkthrough since the user
+confirmed no accounts exist yet on either platform. Documents one
+deliberate limitation rather than silently having it surprise someone
+later: CORS stays pinned to one literal `FRONTEND_ORIGIN` (the existing
+2026-08-15 security decision, no wildcard), so Vercel *preview*
+deployments — a different random URL per branch/PR — can't reach the
+backend, only the one production domain can.
+
+**Screenshots captured live**, not mocked up: started the real local dev
+stack (`docker compose up -d postgres`/`--build backend`, native
+`npm run dev`), confirmed the user's own Chrome session was already
+signed in (Phase 8 Slice 4's real Google auth, not a bypass), and drove
+the actual app via browser automation to capture seven images now in
+`docs/screenshots/`: the dashboard (due counts + weak points panel), the
+course category picker, a verb-conjugation drill graded 6/6, an active
+FSRS review-session card, a roleplay conversation showing real in-context
+correction on a genuine accent mistake (typed "cafe", got back "café"
+with the grammar explanation), the vocabulary page's LLM-generated
+mnemonic + example sentences, and the CEFR-style known-vocabulary
+coverage panel — chosen to cover every major differentiator (SRS,
+Spanish-specific depth, AI features, conversational practice, coverage
+analysis) in a small enough set to stay skimmable.
+
+**Two stale Known Issues entries closed out**, not just the deploy one
+directly addressed by `Dockerfile.prod`: the `SECRET_KEY` dev-default
+entry now points at the README's key-generation step instead of dangling
+on "must be replaced before deployment" with no deployment slice yet to
+reference.
+
 ## Current Status
 
-**As of 2026-08-16:**
+**As of 2026-08-20:**
 
+- Done: **Phase 8 deployment + final README, complete — Phase 8, and the
+  project's full originally-planned scope, is now done.** New
+  `backend/Dockerfile.prod` (multi-stage, non-root, no `--reload`, no dev
+  deps, dynamic `$PORT`) + `docker-entrypoint.sh` + `backend/railway.json`
+  give the backend a real production image, verified by actually building
+  and running it locally against the dev Postgres container (not just
+  written and assumed correct). README rewritten with a current status,
+  full feature list, architecture overview, and a from-scratch
+  Railway+Vercel deployment walkthrough; seven live screenshots captured
+  via browser automation against the real running app (already
+  Google-signed-in) now live in `docs/screenshots/`. See the decision log
+  entry just above for the full breakdown, including the one deliberate
+  limitation documented (CORS pinned to one literal origin, so Vercel
+  preview deploys can't reach the backend — only production can).
 - Done: **Phase 8 final test pass, complete** — audited every backend
   route against its test file and every global exception handler against
   what actually exercises it; found and filled real gaps (courses/skills
@@ -2577,14 +2674,16 @@ clean.
 - Blocked: nothing. (The manual "sign back in via the real Google account
   picker" follow-up from the auth-slice-4 verification has since been
   confirmed by the user — data intact — and the commit pushed.)
-- Next: Phase 8's auth sub-scope (slices 1-4), performance/cost review,
-  and the final test pass are all done; still remaining: deployment
-  (Vercel + Railway/Fly.io, per the 2026-08-11 decision) and a final
-  README (setup, architecture overview, screenshots/demo). See the
-  Phase 8 line in the plan checklist above.
-- Open questions: none blocking — deployment target was already decided
-  (2026-08-11); nothing else to resolve before starting the remaining
-  Phase 8 work.
+- Next: Phase 8 is fully complete — every sub-scope (auth slices 1-4,
+  performance/cost review, final test pass, deployment infra + README)
+  is done. Genuinely optional remaining work: (1) the user actually
+  creating Railway/Vercel accounts and clicking through the README's
+  deployment walkthrough to get a live URL (infra is ready; nothing left
+  for this session to prepare); (2) Phase 7 (speech/Whisper), still an
+  explicitly-labeled stretch goal, never started.
+- Open questions: none blocking. Whether to pursue Phase 7 at all is the
+  only real open fork, and it's explicitly optional per the original
+  phase checklist — not something to resolve unprompted.
 
 ## Known Issues / Follow-ups
 
@@ -2608,11 +2707,10 @@ clean.
   Also, `database.py` uses SQLAlchemy's default connection-pool sizing
   (5 + 10 overflow), untuned. Both low-urgency; revisit once real hosting
   with a real connection cap is picked (the deploy slice).
-- The backend `Dockerfile` always runs `uvicorn --reload` with dev
-  dependencies installed (`pip install -e ".[dev]"`) — correct for local
-  Docker parity, not what should actually ship. Real fix (multi-stage
-  build, a real ASGI server command, prod-only deps) belongs in the
-  deploy slice, not before.
+- ~~The backend `Dockerfile` always runs `uvicorn --reload` with dev
+  dependencies installed...~~ — **resolved 2026-08-20**, see that date's
+  decision log entry (new `backend/Dockerfile.prod`, kept separate from
+  the dev `Dockerfile` rather than parameterizing one image for both).
 - On Windows, killing a `uvicorn --reload` process by its listed PID can
   leave an orphaned worker subprocess still bound to the port and still
   serving old code — the reloader (parent) and the actual server (child
@@ -2624,11 +2722,14 @@ clean.
   whichever PID you tried to kill) and stop that one too before
   restarting.
 - `SECRET_KEY`'s dev default (`dev-secret-change-me`, 20 bytes) signs the
-  new session JWT (Phase 8 slice 1) and is now genuinely security-relevant,
-  not just a placeholder — PyJWT already warns on it
-  (`InsecureKeyLengthWarning`, below the 32-byte HS256 minimum). Must be
-  replaced with a real random value before deployment (Phase 8's later
-  slice); harmless for local dev.
+  session JWT (Phase 8 slice 1) and is genuinely security-relevant, not
+  just a placeholder — PyJWT already warns on it
+  (`InsecureKeyLengthWarning`, below the 32-byte HS256 minimum); harmless
+  for local dev only because nothing real is protected there. The
+  deployment walkthrough (README's Deployment section, 2026-08-20)
+  documents generating a real one for Railway's `SECRET_KEY` variable —
+  there's no code fix for this, only an operational one, so it stays
+  here as a reminder rather than becoming a decision log entry.
 - `alembic revision --autogenerate` keeps proposing to drop a pre-existing
   `ix_cards_due_at` index on `cards` (superseded by the composite
   `ix_cards_deck_id_due_at`, never cleaned up) — surfaced a third time in

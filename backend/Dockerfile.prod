@@ -1,0 +1,50 @@
+# Production image (Railway). Deliberately a separate file from
+# ./Dockerfile rather than one parameterized image: that one stays the
+# local docker-compose dev image (editable install so the bind-mounted
+# source is what actually runs, --reload, dev deps installed for
+# ruff/pytest inside the container) -- reusing it for prod was flagged as
+# a real gap in PLAN.md's 2026-08-16 performance review ("always runs
+# uvicorn --reload with dev dependencies installed -- correct for local
+# Docker parity, not what should actually ship"). This image fixes that:
+# multi-stage (build tools never ship in the final layer), no dev deps, no
+# --reload, non-root user, and a dynamic $PORT (Railway assigns one at
+# deploy time rather than always using 8000).
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+# Same build-time-only deps as the dev Dockerfile, for the same reason
+# (asyncpg/greenlet occasionally need to build from source depending on
+# platform) -- isolated to this stage so they don't bloat the final image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+COPY app ./app
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+# No [dev] extra -- pytest/ruff have no reason to ship in a deployed image.
+RUN pip install --no-cache-dir .
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
+COPY docker-entrypoint.sh ./
+
+RUN chmod +x docker-entrypoint.sh \
+    && useradd --create-home --uid 1000 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+ENTRYPOINT ["./docker-entrypoint.sh"]
