@@ -8,6 +8,10 @@ practice partner, journal correction with auto vocabulary extraction, and
 adaptive weak-point targeting. Built as a portfolio project, so
 architecture and code quality matter as much as the finished product.
 
+**Live demo:** [language-learning-app-two-ruddy.vercel.app](https://language-learning-app-two-ruddy.vercel.app)
+(sign in with Google; free-tier hosting, so the backend may take a few
+seconds to wake up on a cold start).
+
 First language pair: English (base) → Spanish (target), with a second
 English → Dutch course built specifically to prove the app's core design
 principle (below) actually holds.

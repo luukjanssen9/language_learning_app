@@ -2399,10 +2399,101 @@ entry now points at the README's key-generation step instead of dangling
 on "must be replaced before deployment" with no deployment slice yet to
 reference.
 
+**2026-08-21 — App actually deployed live, not just infra-ready.** The
+2026-08-20 entry above prepared everything deployable but explicitly
+left account creation/setup as the user's own follow-up, since nothing
+in that session could act on external accounts. This session the user
+worked through the README's walkthrough live, with real-time guidance —
+worth logging because three genuine bugs surfaced that only exist once
+the app is running as two separately-hosted services with a real
+browser in the loop, none of them reachable by local dev or by review of
+the code alone.
+
+**Bug 1 — Railway variable mix-up, self-inflicted by an easy-to-make
+dashboard mistake.** All of the backend's custom env vars
+(`DATABASE_URL`, `SECRET_KEY`, `GEMINI_API_KEY`, etc.) got added to the
+**Postgres** service instead of the actual backend service
+(`language_learning_app`) — both live in the same project sidebar and
+it's a one-click mix-up. Symptom was confusing by nature: `railway
+variables` against the (wrongly-linked) backend service showed only
+Railway's own auto-injected metadata, nothing custom. Fixed by re-adding
+every variable on the correct service; `DATABASE_URL` specifically
+rebuilt using Railway's `${{Service.VAR}}` cross-service reference
+syntax via the dashboard's autocomplete rather than retyped by hand.
+
+**Bug 2 — that rebuilt `DATABASE_URL` was itself missing a segment.**
+The first attempt resolved to `...@45939/railway` — a bare port with no
+hostname before it — because the `${{Postgres.RAILWAY_TCP_PROXY_DOMAIN}}`
+piece silently didn't make it into the value while composing it through
+several autocomplete insertions by hand. Diagnosed via the Railway CLI
+(`railway run cmd /c "set DATABASE_URL"`, which resolves Railway's
+`${{ }}` references to real values — something no dashboard view or
+copy button reliably surfaced this session) rather than by guessing.
+Migrations (`alembic upgrade head`) and the full seed (`python -m
+app.seed`) were both run against the live Railway Postgres from the
+local dev `backend` container, temporarily pointed at the Postgres
+service's public proxy URL via a one-off `docker compose exec -e
+DATABASE_URL=...` — chosen over hunting for Railway's dashboard shell
+(its exact location kept shifting across Railway UI versions this
+session) since the local container already has every dependency
+installed and the fix is fully reversible (one env var override, one
+command).
+
+**Bug 3 — Google Sign-In looked like it worked and didn't, for two
+independent reasons, only the first of which was actually about
+Google.** Symptom: click "Sign in with Google," a real popup opens, an
+account gets chosen, then nothing — no error shown, silently back to
+the sign-in screen.
+- **Cause A**: the browser's default Cross-Origin-Opener-Policy blocks
+  the `postMessage` Google's account-chooser popup uses to hand the
+  credential back to the opener page — a known interaction between GSI's
+  popup flow and modern COOP defaults, invisible locally (`localhost`
+  doesn't trigger the same popup-isolation behavior a real cross-origin
+  HTTPS deploy does). Fixed with an explicit `Cross-Origin-Opener-Policy:
+  same-origin-allow-popups` response header, added via `next.config.ts`'s
+  `headers()` — a real code fix, committed and pushed
+  (`e7e0c87`), auto-redeployed by Vercel.
+- **Cause B**, found only *after* fixing A (the credential then reached
+  the backend — confirmed via a real `200` with the actual user JSON
+  back — but the very next request still showed logged-out): the
+  backend's `ENVIRONMENT` variable never actually made it onto the
+  `language_learning_app` service. Not the same mistake as Bug 1 — this
+  one is this session's own oversight, dropped from the shorter
+  "re-add these on the correct service" variable table given while
+  fixing Bug 1, even though it was present in the original walkthrough.
+  Effect: `settings.environment` silently defaulted to `"development"`,
+  so `_set_session_cookie` (`app/api/routes/auth.py`) issued the session
+  cookie as `SameSite=Lax` instead of `SameSite=None` — and browsers
+  categorically refuse to send `Lax` cookies on cross-origin fetches,
+  which is exactly the Vercel→Railway shape. No code was wrong; only a
+  missing deployment variable. Fixed with `railway variables --set
+  "ENVIRONMENT=production"`.
+
+**Also added this session**: a live-demo link in the README pointing at
+the real Vercel URL, since a working link is worth more than a
+walkthrough alone for a portfolio piece.
+
+**Verified working end-to-end, live, not just "deploys without
+error"**: real Google sign-in on `language-learning-app-two-
+ruddy.vercel.app`, session persists across requests, dashboard loads
+real seeded data across all three courses (Spanish/Dutch/Chinese) served
+from Railway Postgres through the Railway-hosted API.
+
 ## Current Status
 
-**As of 2026-08-20:**
+**As of 2026-08-21:**
 
+- Done: **App is live** — https://language-learning-app-two-ruddy.vercel.app
+  (frontend, Vercel) backed by
+  https://languagelearningapp-production-0b6f.up.railway.app (API,
+  Railway) and a Railway Postgres, migrated and seeded with real content
+  across all three courses. Real Google sign-in verified working
+  end-to-end in a real browser. Three real bugs found and fixed getting
+  there (a Railway variable mix-up, a reference-syntax value silently
+  missing a segment, and Google Sign-In failing for two independent
+  reasons — a missing COOP header and a missing `ENVIRONMENT` variable)
+  — see the 2026-08-21 decision log entry just above for the full
+  breakdown. README gained a live-demo link.
 - Done: **Phase 8 deployment + final README, complete — Phase 8, and the
   project's full originally-planned scope, is now done.** New
   `backend/Dockerfile.prod` (multi-stage, non-root, no `--reload`, no dev
@@ -2674,13 +2765,11 @@ reference.
 - Blocked: nothing. (The manual "sign back in via the real Google account
   picker" follow-up from the auth-slice-4 verification has since been
   confirmed by the user — data intact — and the commit pushed.)
-- Next: Phase 8 is fully complete — every sub-scope (auth slices 1-4,
-  performance/cost review, final test pass, deployment infra + README)
-  is done. Genuinely optional remaining work: (1) the user actually
-  creating Railway/Vercel accounts and clicking through the README's
-  deployment walkthrough to get a live URL (infra is ready; nothing left
-  for this session to prepare); (2) Phase 7 (speech/Whisper), still an
-  explicitly-labeled stretch goal, never started.
+- Next: Phase 8 is fully complete, and as of 2026-08-21 the app is
+  actually live (not just deployable) — see the entry above. Nothing
+  left in Phase 8's scope. The only remaining work anywhere in the
+  original plan is Phase 7 (speech/Whisper), still an explicitly-labeled
+  stretch goal, never started.
 - Open questions: none blocking. Whether to pursue Phase 7 at all is the
   only real open fork, and it's explicitly optional per the original
   phase checklist — not something to resolve unprompted.
