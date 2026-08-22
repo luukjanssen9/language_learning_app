@@ -2,6 +2,7 @@ import { api } from "./client";
 import type {
   Card,
   CardCreatePayload,
+  CardGeneratePayload,
   CardQuickAddPayload,
   CardQuickAddResponse,
   CardReviewResponse,
@@ -24,6 +25,8 @@ export const cardsApi = {
   create: (payload: CardCreatePayload) => api.post<Card>("/cards", payload),
   quickAdd: (payload: CardQuickAddPayload) =>
     api.post<CardQuickAddResponse>("/cards/quick-add", payload),
+  generate: (payload: CardGeneratePayload) =>
+    api.post<CardQuickAddResponse>("/cards/generate", payload),
   update: (id: string, payload: CardUpdatePayload) => api.patch<Card>(`/cards/${id}`, payload),
   remove: (id: string) => api.delete(`/cards/${id}`),
   review: (id: string, rating: ReviewRating) =>

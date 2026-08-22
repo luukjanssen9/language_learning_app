@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.auth import get_current_user
 from app.api.crud_utils import get_or_404, get_owned_or_404
+from app.api.rate_limit import card_generation_limiter
 from app.database import get_db
 from app.models.card import Card
 from app.models.course import Course
@@ -19,6 +20,7 @@ from app.models.user import User
 from app.models.vocabulary import VocabularyItem
 from app.schemas.card import (
     CardCreate,
+    CardGenerate,
     CardQuickAdd,
     CardQuickAddResponse,
     CardRead,
@@ -28,7 +30,9 @@ from app.schemas.card import (
 )
 from app.schemas.review_log import ReviewLogRead
 from app.schemas.vocabulary import VocabularyItemRead
+from app.services.card_generation import generate_card_from_word
 from app.services.fsrs_engine import apply_review
+from app.services.llm import LLMProvider, get_llm_provider
 from app.services.note_cards import get_or_create_vocabulary_item_and_cards
 
 router = APIRouter(prefix="/cards", tags=["cards"])
@@ -83,6 +87,56 @@ async def quick_add_card(
         example_sentence_translation=payload.example_sentence_translation,
         tags=payload.tags,
         attributes=payload.attributes,
+    )
+
+    await db.commit()
+    await db.refresh(vocabulary_item)
+    for card in cards:
+        await db.refresh(card, attribute_names=["vocabulary_item"])
+
+    return CardQuickAddResponse(
+        vocabulary_item=VocabularyItemRead.model_validate(vocabulary_item),
+        cards=[CardRead.model_validate(card) for card in cards],
+    )
+
+
+@router.post("/generate", response_model=CardQuickAddResponse, status_code=status.HTTP_201_CREATED)
+async def generate_card(
+    payload: CardGenerate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    llm: LLMProvider = Depends(get_llm_provider),
+) -> CardQuickAddResponse:
+    """The "type a word, get an AI-generated flashcard" button on a deck's
+    page: translates `payload.base_text` (a word in the deck's course's
+    base language) into the target language via one LLM call
+    (app/services/card_generation.py), then reuses the same idempotent
+    resolve-or-create note logic `POST /cards/quick-add` uses -- so
+    generating a word that's already a note in this course (or already
+    has a card in this deck) behaves the same way quick-add does, rather
+    than duplicating it.
+    """
+    card_generation_limiter.check(current_user.id)
+
+    deck = await get_owned_or_404(db, Deck, payload.deck_id, current_user.id)
+    course = await get_or_404(db, Course, deck.course_id)
+    target_language = await get_or_404(db, Language, course.target_language_id)
+    base_language = await get_or_404(db, Language, course.base_language_id)
+
+    generated = await generate_card_from_word(
+        llm, target_language.name, base_language.name, payload.base_text
+    )
+
+    vocabulary_item, cards = await get_or_create_vocabulary_item_and_cards(
+        db,
+        deck,
+        target_language,
+        target_text=generated.target_text,
+        base_text=payload.base_text,
+        part_of_speech=generated.part_of_speech,
+        source="AI-generated",
+        example_sentence=generated.example_sentence,
+        example_sentence_translation=generated.example_sentence_translation,
     )
 
     await db.commit()

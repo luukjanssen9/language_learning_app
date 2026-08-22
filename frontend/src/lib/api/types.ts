@@ -156,6 +156,15 @@ export interface CardQuickAddResponse {
   cards: Card[];
 }
 
+// Request body for POST /cards/generate -- the "type a word, get an
+// AI-generated flashcard" button on a deck's page. Only the word itself;
+// the backend translates it via an LLM call and returns the same shape
+// quick-add does (CardQuickAddResponse), so both share one response type.
+export interface CardGeneratePayload {
+  deck_id: string;
+  base_text: string;
+}
+
 export interface SkillIntroExample {
   target_text: string;
   base_text: string;

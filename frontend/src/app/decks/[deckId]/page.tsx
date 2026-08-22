@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { CardForm } from "@/components/cards/CardForm";
 import { CardListItem } from "@/components/cards/CardListItem";
+import { GenerateCardButton } from "@/components/cards/GenerateCardButton";
 import { DeckForm } from "@/components/decks/DeckForm";
 import { useCards, useCreateCard, useDeleteCard, useUpdateCard } from "@/hooks/useCards";
 import { useDecks, useDeleteDeck, useUpdateDeck } from "@/hooks/useDecks";
@@ -138,13 +139,16 @@ export default function DeckDetailPage() {
           }}
         />
       ) : (
-        <button
-          type="button"
-          onClick={() => setIsAdding(true)}
-          className="self-start border border-dashed border-line px-4 py-2 text-sm text-ink-soft"
-        >
-          + Add card
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="self-start border border-dashed border-line px-4 py-2 text-sm text-ink-soft"
+          >
+            + Add card
+          </button>
+          <GenerateCardButton deckId={deckId} />
+        </div>
       )}
     </main>
   );

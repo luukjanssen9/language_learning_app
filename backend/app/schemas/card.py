@@ -76,6 +76,19 @@ class CardQuickAddResponse(BaseModel):
     cards: list[CardRead]
 
 
+class CardGenerate(BaseModel):
+    """Request body for POST /cards/generate -- the "type a word in the
+    course's base language, get an AI-generated flashcard" button on a
+    deck's page. Only needs the word itself; the LLM fills in the target-
+    language translation, part of speech, and an example sentence, then
+    this reuses the same resolve-or-create note logic CardQuickAdd uses
+    (see app/services/card_generation.py).
+    """
+
+    deck_id: uuid.UUID
+    base_text: str
+
+
 class CardReviewSubmit(BaseModel):
     """Request body for POST /cards/{card_id}/review.
 
