@@ -27,6 +27,20 @@ function sideContent(
     : undefined;
   const targetDisplay = transliteration ? `${vocab.target_text} (${transliteration})` : vocab.target_text;
 
+  // vocab.example_sentence is always in the target language (see
+  // VocabularyItem's docstring) -- same transliteration treatment as the
+  // word itself above, since a learner reading a target-language example
+  // sentence needs the same romanization help reading the word did.
+  // example_sentence_translation is already in the base language, so it
+  // never gets one.
+  const exampleSentenceTransliteration = vocabDeckConfig?.needs_transliteration
+    ? (vocab.attributes.example_sentence_transliteration as string | undefined)
+    : undefined;
+  const exampleSentenceDisplay =
+    vocab.example_sentence && exampleSentenceTransliteration
+      ? `${vocab.example_sentence} (${exampleSentenceTransliteration})`
+      : vocab.example_sentence;
+
   // Direction genuinely drives layout for vocabulary-backed cards, unlike
   // override-based cards above (direction is stored metadata there,
   // never affecting which override renders where) -- production
@@ -38,12 +52,12 @@ function sideContent(
       front: vocab.base_text,
       frontSub: vocab.example_sentence_translation,
       back: targetDisplay,
-      backSub: vocab.example_sentence,
+      backSub: exampleSentenceDisplay,
     };
   }
   return {
     front: targetDisplay,
-    frontSub: vocab.example_sentence,
+    frontSub: exampleSentenceDisplay,
     back: vocab.base_text,
     backSub: vocab.example_sentence_translation,
   };

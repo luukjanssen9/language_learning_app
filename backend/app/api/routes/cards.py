@@ -123,9 +123,22 @@ async def generate_card(
     target_language = await get_or_404(db, Language, course.target_language_id)
     base_language = await get_or_404(db, Language, course.base_language_id)
 
-    generated = await generate_card_from_word(
-        llm, target_language.name, base_language.name, payload.base_text
+    vocab_deck_config = target_language.grammar_config.get("vocab_deck", {})
+    transliteration_label = (
+        vocab_deck_config.get("transliteration_label")
+        if vocab_deck_config.get("needs_transliteration")
+        else None
     )
+
+    generated = await generate_card_from_word(
+        llm, target_language.name, base_language.name, payload.base_text, transliteration_label
+    )
+
+    attributes = {}
+    if generated.transliteration:
+        attributes["transliteration"] = generated.transliteration
+    if generated.example_sentence_transliteration:
+        attributes["example_sentence_transliteration"] = generated.example_sentence_transliteration
 
     vocabulary_item, cards = await get_or_create_vocabulary_item_and_cards(
         db,
@@ -137,6 +150,7 @@ async def generate_card(
         source="AI-generated",
         example_sentence=generated.example_sentence,
         example_sentence_translation=generated.example_sentence_translation,
+        attributes=attributes,
     )
 
     await db.commit()

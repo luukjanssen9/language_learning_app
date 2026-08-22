@@ -4,7 +4,12 @@ client, no real LLM call. Same convention as test_word_translation.py.
 
 from pydantic import BaseModel
 
-from app.services.card_generation import GeneratedCard, generate_card_from_word
+from app.services.card_generation import (
+    GeneratedCard,
+    GeneratedTransliteration,
+    generate_card_from_word,
+    generate_transliteration,
+)
 from app.services.llm.base import ModelTier
 
 
@@ -89,3 +94,75 @@ async def test_generate_card_from_word_only_calls_the_llm_once():
     await generate_card_from_word(fake, "Spanish", "English", "hello")
 
     assert fake.call_count == 1
+
+
+async def test_generate_card_from_word_omits_transliteration_instructions_by_default():
+    # Spanish doesn't need one -- no transliteration_label passed -- so the
+    # prompt shouldn't ask the model for it at all.
+    fake = FakeLLMProvider(
+        GeneratedCard(
+            target_text="hola",
+            example_sentence="Hola.",
+            example_sentence_translation="Hello.",
+        )
+    )
+
+    await generate_card_from_word(fake, "Spanish", "English", "hello")
+
+    assert fake.last_prompt is not None
+    assert "transliteration" not in fake.last_prompt
+
+
+async def test_generate_card_from_word_asks_for_transliteration_when_label_given():
+    fake = FakeLLMProvider(
+        GeneratedCard(
+            target_text="早饭",
+            example_sentence="我吃早饭。",
+            example_sentence_translation="I eat breakfast.",
+            transliteration="zǎofàn",
+            example_sentence_transliteration="Wǒ chī zǎofàn.",
+        )
+    )
+
+    result = await generate_card_from_word(
+        fake, "Chinese", "English", "breakfast", transliteration_label="Pinyin"
+    )
+
+    assert fake.last_prompt is not None
+    assert "Pinyin" in fake.last_prompt
+    assert "transliteration" in fake.last_prompt
+    assert "example_sentence_transliteration" in fake.last_prompt
+    assert result.transliteration == "zǎofàn"
+    assert result.example_sentence_transliteration == "Wǒ chī zǎofàn."
+
+
+async def test_generate_transliteration_returns_provider_result():
+    canned = GeneratedTransliteration(
+        transliteration="nǐ hǎo", example_sentence_transliteration="Nǐ hǎo!"
+    )
+    fake = FakeLLMProvider(canned)
+
+    result = await generate_transliteration(fake, "Chinese", "Pinyin", "你好", "你好！")
+
+    assert result == canned
+
+
+async def test_generate_transliteration_omits_example_clause_when_no_example_sentence():
+    fake = FakeLLMProvider(GeneratedTransliteration(transliteration="nǐ hǎo"))
+
+    await generate_transliteration(fake, "Chinese", "Pinyin", "你好", None)
+
+    assert fake.last_prompt is not None
+    assert "example_sentence_transliteration" not in fake.last_prompt
+
+
+async def test_generate_transliteration_prompt_uses_passed_in_names_and_label():
+    fake = FakeLLMProvider(GeneratedTransliteration(transliteration="hallo"))
+
+    await generate_transliteration(fake, "Dutch", "Romanization", "hallo", None)
+
+    assert fake.last_prompt is not None
+    assert "Dutch" in fake.last_prompt
+    assert "Romanization" in fake.last_prompt
+    assert "hallo" in fake.last_prompt
+    assert "Pinyin" not in fake.last_prompt

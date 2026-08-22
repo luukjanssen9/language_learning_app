@@ -196,6 +196,33 @@ describe("Flashcard", () => {
     expect(screen.queryByRole("button", { name: "Play pronunciation" })).not.toBeInTheDocument();
   });
 
+  it("shows the example sentence's transliteration alongside it, when the note has one", () => {
+    const vocabWithSentenceTransliteration: VocabularyItem = {
+      ...vocabularyItem,
+      attributes: {
+        transliteration: "nǐ hǎo",
+        example_sentence_transliteration: "Nǐ hǎo, hěn gāoxìng rènshi nǐ.",
+      },
+    };
+    const recognitionCard: Card = {
+      ...card,
+      vocabulary_item_id: vocabWithSentenceTransliteration.id,
+      vocabulary_item: vocabWithSentenceTransliteration,
+      direction: "target_to_base",
+    };
+    render(
+      <Flashcard
+        card={recognitionCard}
+        flipped={false}
+        onFlip={() => {}}
+        targetLanguage={chineseLanguage}
+      />,
+    );
+    expect(
+      screen.getByText("你好，很高兴认识你。 (Nǐ hǎo, hěn gāoxìng rènshi nǐ.)"),
+    ).toBeInTheDocument();
+  });
+
   it("omits transliteration when the target language doesn't need one", () => {
     const spanishLanguage: Language = {
       ...chineseLanguage,
